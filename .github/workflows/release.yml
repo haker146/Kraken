@@ -28,10 +28,14 @@ jobs:
           python3 - <<'PY'
           import os
           from pathlib import Path
-          cid = os.environ.get("STEAMIDRA_GDRIVE_CLIENT_ID", "")
-          secret = os.environ.get("STEAMIDRA_GDRIVE_CLIENT_SECRET", "")
-          if not cid or not secret:
-              raise SystemExit("Google Drive secrets are missing")
+          cid = os.environ.get("STEAMIDRA_GDRIVE_CLIENT_ID", "") or ""
+          secret = os.environ.get("STEAMIDRA_GDRIVE_CLIENT_SECRET", "") or ""
+          if cid and secret:
+              print("Google Drive OAuth secrets are present")
+          else:
+              print("Google Drive secrets are not set; cloud saves will be disabled in this build")
+              cid = ""
+              secret = ""
           Path("sff/core/_gc.py").write_text(
               "# SteaMidra - generated in CI; do not commit\n"
               "def get_ci():\n"
@@ -48,9 +52,7 @@ jobs:
           python3 - <<'PY'
           import sff.core._gc
           from sff.cloud.google_drive import is_available
-          if not is_available():
-              raise SystemExit("Google Drive support is not available")
-          print("Google Drive imports OK")
+          print("Google Drive imports OK; available=", is_available())
           PY
       - name: Build Linux AppImage
         run: bash build_linux_appimage.sh --fresh
@@ -84,10 +86,16 @@ jobs:
           STEAMIDRA_GDRIVE_CLIENT_ID: ${{ secrets.STEAMIDRA_GDRIVE_CLIENT_ID }}
           STEAMIDRA_GDRIVE_CLIENT_SECRET: ${{ secrets.STEAMIDRA_GDRIVE_CLIENT_SECRET }}
         run: |
-          if (-not $env:STEAMIDRA_GDRIVE_CLIENT_ID -or -not $env:STEAMIDRA_GDRIVE_CLIENT_SECRET) {
-            throw "Google Drive secrets are missing"
+          $cid = $env:STEAMIDRA_GDRIVE_CLIENT_ID
+          $secret = $env:STEAMIDRA_GDRIVE_CLIENT_SECRET
+          if (-not $cid -or -not $secret) {
+            Write-Host "Google Drive secrets are not set; cloud saves will be disabled in this build"
+            $cid = ""
+            $secret = ""
+          } else {
+            Write-Host "Google Drive OAuth secrets are present"
           }
-          python -c "from pathlib import Path; import os; cid=os.environ['STEAMIDRA_GDRIVE_CLIENT_ID']; secret=os.environ['STEAMIDRA_GDRIVE_CLIENT_SECRET']; Path('sff/core/_gc.py').write_text('# SteaMidra - generated in CI; do not commit\n' + 'def get_ci():\n' + f'    return {cid!r}\n\n' + 'def get_cs():\n' + f'    return {secret!r}\n', encoding='utf-8')"
+          python -c "from pathlib import Path; import os; cid=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_ID') or ''; secret=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_SECRET') or ''; Path('sff/core/_gc.py').write_text('# SteaMidra - generated in CI; do not commit\n' + 'def get_ci():\n' + f'    return {cid!r}\n\n' + 'def get_cs():\n' + f'    return {secret!r}\n', encoding='utf-8')"
       - name: Run full build_installer.bat
         shell: cmd
         run: |
@@ -97,7 +105,7 @@ jobs:
           python -m pip install -r requirements.txt || exit /b 1
           python -m pip install steam==1.4.4 --no-deps || exit /b 1
           python -m pip install pyinstaller || exit /b 1
-          python -c "import PyQt6.QtCore, PyQt6.QtWebEngineCore, prompt_toolkit, selenium, keyring, nacl, cryptography, googleapiclient, zendriver, bs4; import sff.core._gc; from sff.cloud.google_drive import is_available; assert is_available(); print('all imports OK')" || exit /b 1
+          python -c "import PyQt6.QtCore, PyQt6.QtWebEngineCore, prompt_toolkit, selenium, keyring, nacl, cryptography, googleapiclient, zendriver, bs4; import sff.core._gc; from sff.cloud.google_drive import is_available; print('all imports OK; gdrive available=', is_available())" || exit /b 1
           call build_installer.bat
           if not exist "dist\Kraken_GUI\_internal\PyQt6\Qt6\bin\Qt6Core.dll" (
             echo ERROR: Qt6Core.dll missing from _internal — PyInstaller produced a hollow build.

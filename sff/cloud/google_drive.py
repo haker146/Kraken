@@ -34,10 +34,13 @@ _TOKEN_URI = "https://oauth2.googleapis.com/token"
 def _client_config():
     try:
         from sff.core._gc import get_ci, get_cs
+        cid, secret = get_ci(), get_cs()
+        if not cid or not secret:
+            return None
         return {
             "installed": {
-                "client_id": get_ci(),
-                "client_secret": get_cs(),
+                "client_id": cid,
+                "client_secret": secret,
                 "auth_uri": _AUTH_URI,
                 "token_uri": _TOKEN_URI,
                 "redirect_uris": ["http://localhost"],
