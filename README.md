@@ -79,9 +79,9 @@ Full changelog: [CHANGELOG.md](CHANGELOG.md)
 
 [Multiplayer Fix](docs/MULTIPLAYER_FIX.md) – Searching online-fix.me and opening the result in your browser.
 
-[Fixes & Bypasses](docs/CRACK_FIX.md) – Searching and applying community-maintained fixes from the CrakFiles repo. No API key, no account.
+[Fixes & Bypasses](docs/CRACK_FIX.md) – Searching and applying community-maintained fixes from the data branch catalog. No API key, no account.
 
-[CrakFiles — Fixes & Bypasses source](docs/CRACK_FILES.md) – What the CrakFiles repository is, how SteaMidra fetches and uses `crackfiles.json`, and a breakdown of every field in the fix list.
+[Crack catalog — Fixes & Bypasses source](docs/CRACK_FILES.md) – How Kraken fetches `crackfiles.json` from the `Konungs-skuggsjá` branch, and a breakdown of every field in the fix list.
 
 [DLC Unlockers](docs/dlc_unlockers/README.md) – Using DLC unlockers (CreamInstaller-style).
 

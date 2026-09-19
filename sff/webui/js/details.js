@@ -27,7 +27,9 @@ window.GameDetails = (function() {
         var dlcAll = document.getElementById('gd-dlc-all');
         if (dlcAll) {
             dlcAll.addEventListener('change', function() {
-                document.querySelectorAll('#gd-dlc .gd-dlc-cb:not(:disabled)').forEach(function(cb) {
+                document.querySelectorAll('#gd-dlc .gd-dlc-cb').forEach(function(cb) {
+                    var row = cb.closest('.gd-dlc-row');
+                    if (row && row.classList.contains('is-active')) return;
                     cb.checked = dlcAll.checked;
                 });
             });
@@ -71,6 +73,14 @@ window.GameDetails = (function() {
         var thumbs = document.getElementById('gd-thumbs');
         if (thumbs) thumbs.innerHTML = '';
         document.getElementById('gd-req').textContent = '';
+        var header = document.getElementById('gd-header-img');
+        if (header) {
+            header.removeAttribute('src');
+            header.alt = name || '';
+            header.src = _hero(_appId);
+        }
+        var page = root.querySelector('.gd-steam-page');
+        if (page) page.classList.add('is-loading');
         var vid = document.getElementById('gd-trailer');
         var mediaImg = document.getElementById('gd-media-image');
         if (vid) {
@@ -178,12 +188,21 @@ window.GameDetails = (function() {
         var vid = document.getElementById('gd-trailer');
         var img = document.getElementById('gd-media-image');
         if (!vid || !img) return;
-        _trailerUrls = (urls && urls.length) ? urls.slice() : (url ? [url] : []);
+        _trailerUrls = ((urls && urls.length) ? urls.slice() : (url ? [url] : [])).filter(function(item) {
+            return item && !/\.m3u8($|\?)/i.test(String(item)) && !/hls_/i.test(String(item));
+        });
+        _trailerUrls.sort(function(a, b) {
+            var ap = /\.mp4($|\?)/i.test(a) ? 0 : 1;
+            var bp = /\.mp4($|\?)/i.test(b) ? 0 : 1;
+            return ap - bp;
+        });
         _trailerIdx = 0;
         if (kind === 'video' && _trailerUrls.length) {
             img.classList.add('hidden');
             vid.classList.remove('hidden');
             if (poster) vid.poster = poster;
+            vid.preload = 'metadata';
+            vid.muted = true;
             vid.src = _trailerUrls[0];
             try { vid.play().catch(function() {}); } catch (e) {}
         } else {
@@ -248,8 +267,7 @@ window.GameDetails = (function() {
             var on = !!dlc.in_applist;
             return '<li class="gd-dlc-row' + (on ? ' is-active' : '') + '">' +
                 '<label>' +
-                '<input type="checkbox" class="gd-dlc-cb" data-appid="' + _esc(dlc.id) + '"' +
-                (on ? ' disabled' : ' checked') + '>' +
+                '<input type="checkbox" class="gd-dlc-cb" data-appid="' + _esc(dlc.id) + '">' +
                 '<span class="gd-dlc-name">' + _esc(dlc.name || ('DLC ' + dlc.id)) + '</span>' +
                 '<span class="gd-dlc-id">' + _esc(dlc.id) + '</span>' +
                 '<span class="gd-dlc-state">' + (on ? 'Active' : 'Not active') + '</span>' +
@@ -257,7 +275,7 @@ window.GameDetails = (function() {
         }).join('');
         if (bar) bar.classList.remove('hidden');
         var all = document.getElementById('gd-dlc-all');
-        if (all) all.checked = true;
+        if (all) all.checked = false;
     }
 
     function _activateSelectedDlc() {
@@ -271,6 +289,30 @@ window.GameDetails = (function() {
         }
         if (window.Components) Components.showToast('info', 'Activating ' + ids.length + ' DLC(s) on Steam…');
         Bridge.call('activate_dlcs', _appId, JSON.stringify(ids));
+    }
+
+    function _crackBuildNote(data) {
+        var bid = String((data && data.crack_downgrade_build) || '').trim();
+        if (!bid) return '';
+        return '<div class="gd-crack-build">Crack is for Steam build <strong>' + _esc(bid) +
+            '</strong>. Downgrade the game to this version for the crack to work.</div>';
+    }
+
+    function _fillCrackBox(el, data) {
+        if (!el) return;
+        var status = (data && data.crack_status) || '';
+        var note = _crackBuildNote(data);
+        if (!status && !(data && data.protection) && !note) {
+            el.className = 'gd-crack';
+            el.innerHTML = '';
+            return;
+        }
+        el.className = 'gd-crack ' + _statusClass(status);
+        el.innerHTML = '<div class="steam-status-box"><div class="steam-discount">' +
+            _esc(status || (data && data.protection) || 'Denuvo') +
+            '</div><div class="steam-status-copy"><span class="steam-protection">' +
+            _esc((data && data.protection) || '') +
+            '</span><span class="steam-status-sub">isitcracked.com</span></div></div>' + note;
     }
 
     function _onDetails(json) {
@@ -296,15 +338,43 @@ window.GameDetails = (function() {
         }
         if (data.task !== 'game_details') return;
         if (String(data.app_id) !== _appId) return;
+        if (data.extra_only) {
+            if (data.protection) _setText('gd-protection', data.protection);
+            _fillCrackBox(document.getElementById('gd-crack'), data);
+            var reviewsEl = document.getElementById('gd-reviews');
+            if (reviewsEl && (data.review_label || data.review_recent_label)) {
+                var recent = _reviewRow(
+                    'Recent Reviews:',
+                    data.review_recent_label || data.review_label,
+                    data.review_recent_count || (data.review_recent_label ? 0 : data.review_count),
+                    data.review_recent_percent || data.review_percent
+                );
+                var all = _reviewRow('All Reviews:', data.review_label, data.review_count, data.review_percent);
+                reviewsEl.innerHTML = recent + all;
+            }
+            return;
+        }
         if (!data.success) {
             var msg = data.message || 'Could not load details.';
             if (window.Components && Components.friendlyError) msg = Components.friendlyError(msg);
             document.getElementById('gd-sub').textContent = msg;
+            var failedPage = document.querySelector('#game-details .gd-steam-page');
+            if (failedPage) failedPage.classList.remove('is-loading');
             return;
         }
         var shownName = data.name || _name || ('App ' + _appId);
         if (_name && /^App\s+\d+$/i.test(String(data.name || ''))) shownName = _name;
         document.getElementById('gd-title').textContent = shownName;
+        if (data.partial) {
+            var earlyHeader = document.getElementById('gd-header-img');
+            if (earlyHeader && data.header_image) {
+                earlyHeader.alt = shownName;
+                earlyHeader.src = data.header_image;
+            }
+            return;
+        }
+        var page = document.querySelector('#game-details .gd-steam-page');
+        if (page) page.classList.remove('is-loading');
         document.getElementById('gd-sub').textContent = '';
         document.getElementById('gd-desc').textContent = data.short_description || '';
         _setText('gd-release', data.release_date);
@@ -335,21 +405,7 @@ window.GameDetails = (function() {
             reviews.innerHTML = recent + all;
         }
 
-        var crack = document.getElementById('gd-crack');
-        if (crack) {
-            var status = data.crack_status || '';
-            if (status || data.protection) {
-                crack.className = 'gd-crack ' + _statusClass(status);
-                crack.innerHTML = '<div class="steam-status-box"><div class="steam-discount">' +
-                    _esc(status || data.protection) +
-                    '</div><div class="steam-status-copy"><span class="steam-protection">' +
-                    _esc(data.protection || '') +
-                    '</span><span class="steam-status-sub">isitcracked.com</span></div></div>';
-            } else {
-                crack.className = 'gd-crack';
-                crack.innerHTML = '';
-            }
-        }
+        _fillCrackBox(document.getElementById('gd-crack'), data);
 
         var tags = document.getElementById('gd-tags');
         if (tags) {

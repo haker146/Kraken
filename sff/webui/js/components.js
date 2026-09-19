@@ -119,6 +119,54 @@ window.Components = (function() {
         return STEAM_CDN_LIBRARY.replace('{appid}', appId);
     }
 
+    function bindCover(img, appId, options) {
+        options = options || {};
+        if (!img || !appId) return;
+        var wrap = options.wrap || img.parentNode;
+        img.alt = options.alt || img.alt || '';
+        img.loading = options.loading || 'lazy';
+        img.decoding = 'async';
+        img.referrerPolicy = 'no-referrer';
+        var urls = [];
+        (options.urls || []).forEach(function(url) {
+            if (url && urls.indexOf(url) === -1) urls.push(url);
+        });
+        getCoverUrls(appId, options.canonical || null).forEach(function(url) {
+            if (url && urls.indexOf(url) === -1) urls.push(url);
+        });
+        if (!urls.length) return;
+        var cached = _getCachedCoverUrl(appId);
+        if (cached) urls.unshift(cached);
+        scheduleCoverLoad(function(done) {
+            var urlIdx = 0;
+            var finished = false;
+            function finish() {
+                if (finished) return;
+                finished = true;
+                done();
+            }
+            function tryNext() {
+                urlIdx++;
+                if (urlIdx < urls.length) {
+                    img.onerror = tryNext;
+                    img.src = urls[urlIdx];
+                } else {
+                    img.onerror = null;
+                    if (wrap && options.placeholder !== false) {
+                        wrap.innerHTML = '<div class="game-card-img-placeholder">' + NO_IMAGE_SVG + '</div>';
+                    }
+                    finish();
+                }
+            }
+            img.onload = function() {
+                _saveCoverCache(appId, img.src);
+                finish();
+            };
+            img.onerror = tryNext;
+            img.src = urls[0];
+        });
+    }
+
     // Create a game card element (grid view)
     function createGameCard(game, options) {
         options = options || {};
@@ -149,7 +197,10 @@ window.Components = (function() {
             '<div class="game-card-body">' +
                 '<div class="game-card-name">' + escapeHtml(game.name) + '</div>' +
                 '<div class="game-card-appid">App ID: ' + game.app_id + drmBadge + '</div>' +
-                (game.crack_buildid ? '<div class="game-card-buildid" style="color:#ff9800;font-size:11px;margin-top:1px;">Crack BuildID: ' + escapeHtml(String(game.crack_buildid)) + '</div>' : '') +
+                (crackDowngradeBuild(game)
+                    ? '<div class="game-card-buildid steam-row-crack-build">Crack for Steam build ' +
+                        escapeHtml(crackDowngradeBuild(game)) + ' — downgrade to this version</div>'
+                    : '') +
                 lastUpdated +
             '</div>' +
             '<div class="game-card-actions">' +
@@ -313,6 +364,17 @@ window.Components = (function() {
         return t;
     }
 
+    function crackDowngradeBuild(game) {
+        return String((game && game.crack_downgrade_build) || '').trim();
+    }
+
+    function crackBuildHintHtml(game) {
+        var bid = crackDowngradeBuild(game);
+        if (!bid) return '';
+        return '<div class="steam-row-crack-build">Crack for Steam build ' +
+            escapeHtml(bid) + ' — downgrade to this version</div>';
+    }
+
     function createSteamRow(game) {
         var item = document.createElement('div');
         item.className = 'steam-row ' + _statusClass(game);
@@ -335,6 +397,7 @@ window.Components = (function() {
                 '<div class="steam-row-name">' + escapeHtml(game.name) + '</div>' +
                 (tags ? '<div class="steam-row-tags">' + escapeHtml(tags) + '</div>' : '') +
                 (released ? '<div class="steam-row-released">' + escapeHtml(released) + '</div>' : '') +
+                crackBuildHintHtml(game) +
             '</div>' +
             '<div class="steam-row-status">' +
                 '<div class="steam-status-box">' +
@@ -354,40 +417,14 @@ window.Components = (function() {
             img.alt = game.name;
             img.loading = 'lazy';
             img.decoding = 'async';
-            var urls = [];
-            [
-                'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + game.app_id + '/capsule_184x69.jpg',
-                capsuleUrl,
-                'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + game.app_id + '/header.jpg'
-            ].forEach(function(url) {
-                if (url && urls.indexOf(url) === -1) urls.push(url);
-            });
             wrap.appendChild(img);
-            scheduleCoverLoad(function(done) {
-                var urlIdx = 0;
-                var finished = false;
-                function finish() {
-                    if (finished) return;
-                    finished = true;
-                    done();
-                }
-                function tryNext() {
-                    urlIdx++;
-                    if (urlIdx < urls.length) {
-                        img.onerror = tryNext;
-                        img.src = urls[urlIdx];
-                    } else {
-                        img.onerror = null;
-                        wrap.innerHTML = '<div class="game-card-img-placeholder">' + NO_IMAGE_SVG + '</div>';
-                        finish();
-                    }
-                }
-                img.onload = function() {
-                    _saveCoverCache(game.app_id, img.src);
-                    finish();
-                };
-                img.onerror = tryNext;
-                img.src = urls[0];
+            bindCover(img, game.app_id, {
+                wrap: wrap,
+                alt: game.name,
+                urls: [
+                    'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + game.app_id + '/capsule_184x69.jpg',
+                    capsuleUrl
+                ]
             });
         }
         return item;
@@ -498,6 +535,15 @@ window.Components = (function() {
         var crackBanner = document.getElementById('dl-crack-banner');
         if (crackBanner) crackBanner.style.display = 'none';
         _loadCrackBanner(appId, gameName, 1);
+
+        var live = document.getElementById('dl-live');
+        if (live) {
+            live.classList.add('hidden');
+            var log = document.getElementById('dl-live-log');
+            if (log) log.textContent = '';
+            var fill = document.getElementById('dl-live-fill');
+            if (fill) fill.style.width = '0%';
+        }
 
         showModal('download-modal');
     }
@@ -754,9 +800,11 @@ window.Components = (function() {
     return {
         getCoverUrls: getCoverUrls,
         getLibraryCoverUrl: getLibraryCoverUrl,
+        bindCover: bindCover,
         createGameCard: createGameCard,
         createGameListItem: createGameListItem,
         createSteamRow: createSteamRow,
+        crackDowngradeBuild: crackDowngradeBuild,
         createDownloadItem: createDownloadItem,
         showToast: showToast,
         showModal: showModal,

@@ -21,22 +21,19 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import httpx
 from colorama import Fore, Style
 
 from sff.game.online_fix import _extract_archive_with_backup, _detect_archiver
 from sff.network.pixeldrain import _extract_pixeldrain_id, download_pixeldrain
 from sff.ui.prompts import prompt_select
-
-CRACK_JSON_URL = "https://raw.githubusercontent.com/KoriaPolis/CrakFiles/main/crackfiles.json"
+from sff.network.crack_catalog import prefetch, get_entries
 
 
 def fetch_crack_games() -> list[dict]:
     try:
         print(Fore.CYAN + "Fetching cracks list from GitHub..." + Style.RESET_ALL)
-        resp = httpx.get(CRACK_JSON_URL, follow_redirects=True, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
+        prefetch(force=True)
+        return get_entries()
     except Exception as e:
         print(Fore.RED + f"Error fetching cracks list: {e}" + Style.RESET_ALL)
         return []

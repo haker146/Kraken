@@ -150,6 +150,7 @@ a = Analysis(
         'cryptography',
         'win10toast',
         'sff.network.store_browser',
+        'sff.network.crack_catalog',
         'sff.image_cache',
         'sff.downloads.download_manager',
 

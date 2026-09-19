@@ -329,6 +329,19 @@
   margin-top: 2px;
 }
 
+.steam-row-crack-build,
+.gd-crack-build {
+  color: #66c0f4;
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.gd-crack-build strong {
+  color: #fff;
+  font-weight: 600;
+}
+
 .steam-row-status {
   align-items: center;
   display: flex;
@@ -435,8 +448,9 @@
 
 .game-details {
   background: #1b2838;
-  color: #c7d5e0;
-  z-index: 1200;
+  color: #c6d4df;
+  font-family: Arial, Helvetica, sans-serif;
+  z-index: 80;
 }
 
 .game-details #gd-trailer {
@@ -447,8 +461,9 @@
 
 .gd-steam-page {
   margin: 0 auto;
-  max-width: 1100px;
-  padding: 18px 20px 48px;
+  max-width: 1440px;
+  padding: 16px 28px 56px;
+  width: min(1440px, calc(100% - 16px));
 }
 
 .gd-steam-titlebar h1 {
@@ -465,8 +480,8 @@
 
 .gd-steam-top {
   display: grid;
-  gap: 14px;
-  grid-template-columns: minmax(0, 1.65fr) minmax(260px, 324px);
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.85fr) minmax(280px, 380px);
   margin-top: 8px;
 }
 
@@ -644,10 +659,11 @@
 }
 
 .gd-about-html {
-  color: #c7d5e0;
-  font-size: 13px;
+  color: #acb2b8;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
   line-height: 1.55;
-  max-width: 920px;
+  max-width: none;
 }
 
 .gd-about-html img,
@@ -655,17 +671,42 @@
   border-radius: 2px;
   display: block;
   height: auto;
-  margin: 12px auto;
+  margin: 16px auto;
   max-width: 100%;
+  width: 100%;
 }
 
 .gd-about-html h1,
 .gd-about-html h2,
-.gd-about-html h3 {
+.gd-about-html h3,
+.gd-about-html .bb_h1,
+.gd-about-html .bb_h2 {
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  margin: 16px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  margin: 28px 0 16px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.gd-about-html p {
+  margin: 0 0 12px;
+}
+
+.gd-about-html ul,
+.gd-about-html ol {
+  margin: 0 0 14px 18px;
+}
+
+.gd-about-html li {
+  margin: 4px 0;
+}
+
+.gd-steam-page.is-loading .gd-about-html,
+.gd-steam-page.is-loading .gd-sidebar-desc {
+  min-height: 48px;
+  opacity: 0.55;
 }
 
 .gd-dlc-section {
@@ -744,7 +785,54 @@
   position: fixed;
   right: 18px;
   top: 12px;
-  z-index: 4;
+  z-index: 320;
+}
+
+.dl-live {
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+}
+
+.dl-live-head {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.dl-live-status {
+  color: #c7d5e0;
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.dl-live-bar {
+  height: 8px;
+  margin-bottom: 8px;
+}
+
+.dl-live-log {
+  background: #0e1621;
+  border-radius: 4px;
+  color: #9fb1c2;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
+.dl-live-queue-row {
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+  margin-top: 6px;
+  opacity: 0.85;
 }
 
 @media (max-width: 720px) {

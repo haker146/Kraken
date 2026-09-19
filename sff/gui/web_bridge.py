@@ -199,6 +199,8 @@ from sff.gui.bridges.store_bridge import (
     _bridge_get_steam_client_status,
     _bridge_get_store_game_details,
     _bridge_get_whats_new_seen,
+    _bridge_get_app_summaries,
+    _bridge_suggest_store_games,
     _bridge_refresh_store_metadata,
     _bridge_search_games,
     _bridge_search_games_file,
@@ -336,66 +338,15 @@ def _collect_steamidra_managed_sources(steam_path, saved_lua_root=None) -> dict[
     return {appid: sorted(sources) for appid, sources in managed_sources.items()}
 
 
-_CRACK_BUILDID_CACHE: dict[str, str] | None = None
-_CRACK_BUILDID_FULL: list | None = None
-_CRACK_BUILDID_TIME = 0.0
-_CRACK_BUILDID_FETCHING = False
-
-
 def _prefetch_crack_buildids():
-    global _CRACK_BUILDID_CACHE, _CRACK_BUILDID_FULL, _CRACK_BUILDID_TIME, _CRACK_BUILDID_FETCHING
-    import time as _t
-    if _CRACK_BUILDID_CACHE is not None and (_t.time() - _CRACK_BUILDID_TIME) < 3600:
-        return
-    if _CRACK_BUILDID_FETCHING:
-        return
-    _CRACK_BUILDID_FETCHING = True
-    try:
-        import httpx
-        resp = httpx.get(
-            "https://raw.githubusercontent.com/KoriaPolis/CrakFiles/main/crackfiles.json",
-            follow_redirects=True, timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            out = {}
-            full = []
-            for g in data:
-                if not isinstance(g, dict):
-                    continue
-                name = str(g.get("name", "") or "").strip().lower()
-                bid = str(g.get("buildid", "") or "").strip()
-                if not name:
-                    continue
-                full.append({
-                    "name": name,
-                    "buildid": bid,
-                    "source_crack": [str(x) for x in (g.get("source_crack") or []) if x],
-                    "original_download": [str(x) for x in (g.get("original_download") or []) if x],
-                    "fixes": [
-                        {
-                            "href": str(f.get("href", "") or ""),
-                            "filename": str(f.get("filename", "") or ""),
-                            "badges": [str(b) for b in (f.get("badges") or [])],
-                        }
-                        for f in (g.get("fixes") or [])
-                        if isinstance(f, dict) and f.get("href")
-                    ],
-                })
-                if bid:
-                    out[name] = bid
-            _CRACK_BUILDID_CACHE = out
-            _CRACK_BUILDID_FULL = full
-            _CRACK_BUILDID_TIME = _t.time()
-    except Exception:
-        pass
-    finally:
-        _CRACK_BUILDID_FETCHING = False
+    from sff.network.crack_catalog import prefetch
+    prefetch()
 
 
 def _get_crack_buildid_map() -> dict[str, str]:
     """Return cached crack buildid map. Never blocks — returns empty if not ready."""
-    return _CRACK_BUILDID_CACHE or {}
+    from sff.network.crack_catalog import get_buildid_map
+    return get_buildid_map()
 
 
 def _warm_steam_session_worker():
@@ -458,53 +409,16 @@ def _extract_archive_into(archive_path, dest_dir):
         raise ValueError(f"Unsupported archive type: {suffix}")
 
 
-def _normalize_crack_name(value):
-    return " ".join(str(value or "").lower().replace("’", "'").split())
-
-
-def _find_crack_entry(game_name):
-    """Return the full CrakFiles entry for a game name.
-
-    Matching is deliberately strict: exact normalized name, or the
-    crack entry name as a word-boundary prefix of the game name
-    (covers editions/subtitles like "Resident Evil Requiem: Gold
-    Edition"). Loose substring matching is banned — "Red Dead
-    Redemption" must never match the "Red Dead Redemption 2" entry.
-    """
-    if not game_name or _CRACK_BUILDID_FULL is None:
-        return None
-    target = _normalize_crack_name(game_name)
-    if not target:
-        return None
-    for entry in _CRACK_BUILDID_FULL:
-        if _normalize_crack_name(entry.get("name")) == target:
-            return entry
-    for entry in _CRACK_BUILDID_FULL:
-        name = _normalize_crack_name(entry.get("name"))
-        if name and target.startswith(name):
-            rest = target[len(name):]
-            if not rest or not rest[0].isalnum():
-                return entry
-    return None
+def _find_crack_entry(game_name, app_id=None):
+    """Return the catalog entry for a Steam app id and/or game name."""
+    from sff.network.crack_catalog import lookup
+    return lookup(app_id, game_name)
 
 
 def _pick_crack_fix(entry):
     """Prefer Crack Only > Crack > CrackFix, then the newest entry."""
-    if not entry:
-        return None
-    fixes = [f for f in entry.get("fixes", []) if f.get("href")]
-    if not fixes:
-        return None
-    def _rank(f):
-        badges = [b.lower() for b in f.get("badges", [])]
-        if "crack only" in badges:
-            return 0
-        if "crack" in badges:
-            return 1
-        if "crackfix" in badges:
-            return 2
-        return 3
-    return sorted(fixes, key=_rank)[0]
+    from sff.network.crack_catalog import pick_fix
+    return pick_fix(entry)
 
 
 class WebBridge(QObject):
@@ -863,6 +777,12 @@ class WebBridge(QObject):
     @pyqtSlot(str)
     def get_store_game_details(self, app_id):
         return _bridge_get_store_game_details(self, app_id)
+    @pyqtSlot(str, result=str)
+    def suggest_store_games(self, query):
+        return _bridge_suggest_store_games(self, query)
+    @pyqtSlot(str, result=str)
+    def get_app_summaries(self, ids_json):
+        return _bridge_get_app_summaries(self, ids_json)
     @pyqtSlot(result=str)
     def get_steam_client_status(self):
         return _bridge_get_steam_client_status(self)
@@ -1556,9 +1476,9 @@ class WebBridge(QObject):
         return _bridge_refresh_game_branches(self, app_id)
     @pyqtSlot(str, str, result=str)
     def get_crack_info(self, app_id, game_name):
-        """Return CrakFiles info for a game + whether its crack build id
+        """Return catalog info for a game + whether its crack build id
         matches the latest public build id. Memory-only, instant."""
-        entry = _find_crack_entry(game_name)
+        entry = _find_crack_entry(game_name, app_id)
         if not entry:
             return json.dumps({"found": False})
         latest = _latest_public_buildid_from_cache(app_id)
@@ -1598,7 +1518,7 @@ class WebBridge(QObject):
                                 break
                     except Exception:
                         pass
-                entry = _find_crack_entry(game_name)
+                entry = _find_crack_entry(game_name, app_id)
                 if not entry:
                     return (False, "No crack found for this game.")
                 fix = _pick_crack_fix(entry)

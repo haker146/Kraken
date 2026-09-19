@@ -66,10 +66,6 @@ logger = logging.getLogger(__name__)
 _NSFW_NAME_RE = re.compile(r"(hentai|futanari|furry|sex)", re.IGNORECASE)
 _KNOWN_MACOS_ONLY_APPIDS = {12250}
 
-_CRACK_BUILDID_CACHE: dict[str, str] | None = None
-_CRACK_BUILDID_TIME = 0.0
-_CRACK_BUILDID_FETCHING = False
-
 _STEAM_APPLIST_CACHE = None
 _STEAM_APPLIST_CACHE_TIME = 0.0
 
@@ -141,40 +137,6 @@ def _filter_store_nsfw_rows(rows):
         row for row in (rows or [])
         if not row.get("nsfw") and not _looks_nsfw_by_name(row.get("name"))
     ]
-
-
-def _prefetch_crack_buildids():
-    global _CRACK_BUILDID_CACHE, _CRACK_BUILDID_TIME, _CRACK_BUILDID_FETCHING
-    if _CRACK_BUILDID_CACHE is not None and (_time.time() - _CRACK_BUILDID_TIME) < 3600:
-        return
-    if _CRACK_BUILDID_FETCHING:
-        return
-    _CRACK_BUILDID_FETCHING = True
-    try:
-        import httpx
-        resp = httpx.get(
-            "https://raw.githubusercontent.com/KoriaPolis/CrakFiles/main/crackfiles.json",
-            follow_redirects=True, timeout=10,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            out = {}
-            for g in data:
-                name = str(g.get("name", "") or "").strip().lower()
-                bid = str(g.get("buildid", "") or "").strip()
-                if name and bid:
-                    out[name] = bid
-            _CRACK_BUILDID_CACHE = out
-            _CRACK_BUILDID_TIME = _time.time()
-    except Exception:
-        pass
-    finally:
-        _CRACK_BUILDID_FETCHING = False
-
-
-def _get_crack_buildid_map() -> dict[str, str]:
-    """Return cached crack buildid map. Never blocks — returns empty if not ready."""
-    return _CRACK_BUILDID_CACHE or {}
 
 
 def _platform_cache_put(aid: int, entry: dict) -> None:
@@ -1090,6 +1052,11 @@ def _enrich_store_rows(games):
         if crack.get("days"):
             game["crack_days"] = crack["days"]
         game["status_key"] = str(crack.get("status_key") or status).lower()
+        try:
+            from sff.network.crack_catalog import attach_store_fields
+            attach_store_fields(game)
+        except Exception:
+            pass
     return games
 
 
@@ -1645,17 +1612,6 @@ def _bridge_search_games(bridge, query, offset, per_page, sort_by='updated', tag
         result['games'] = page_games
         result['total'] = total
 
-        # Annotate with crack file BuildIDs so users know which version
-        # to download for crack compatibility
-        try:
-            _cr_buildids = _get_crack_buildid_map()
-            for g in page_games:
-                name = str(g.get('name', '') or '').strip().lower()
-                if name and name in _cr_buildids:
-                    g['crack_buildid'] = _cr_buildids[name]
-        except Exception:
-            pass
-
         result['has_fallback_data'] = True
         # User searched for something specific but nothing matched.
         # Force-refresh the fallback cache in background so next
@@ -1938,6 +1894,84 @@ def _bridge_search_games_file(bridge, query):
 _DETAILS_TTL = 6 * 3600
 
 
+def _bridge_suggest_store_games(bridge, query):
+    """Fast local title suggestions. No Hubcap / Steam catalog round-trip."""
+    q = str(query or "").strip()
+    if not q:
+        return json.dumps([])
+    try:
+        from sff.game_list_fallback import get_app_name, search_games_json, search_name_fallback
+    except Exception:
+        return json.dumps([])
+
+    rows = []
+    seen = set()
+
+    def _add(app_id, name):
+        try:
+            aid = int(app_id)
+        except (TypeError, ValueError):
+            return
+        if aid <= 0 or aid in seen:
+            return
+        label = str(name or "").strip() or get_app_name(aid) or f"App {aid}"
+        seen.add(aid)
+        rows.append({"app_id": aid, "name": label})
+
+    if q.isdigit():
+        _add(q, get_app_name(q))
+
+    queries = _alias_expanded_queries(q) or [q]
+    candidates = []
+    for alt in queries[:4]:
+        try:
+            candidates.extend(search_games_json(alt, limit=40) or [])
+        except Exception:
+            pass
+        try:
+            candidates.extend(search_name_fallback(alt, limit=40) or [])
+        except Exception:
+            pass
+    scored = []
+    for game in candidates:
+        aid = game.get("app_id")
+        name = game.get("name") or ""
+        if not aid or int(aid) in seen:
+            continue
+        score = _store_search_score(q, name, aid)
+        if score[0] >= 99:
+            continue
+        scored.append((score, game))
+    scored.sort(key=lambda item: item[0])
+    for _score, game in scored:
+        _add(game.get("app_id"), game.get("name"))
+        if len(rows) >= 8:
+            break
+
+    if len(rows) < 8:
+        cache = getattr(bridge, "_allgames_cache", None) or []
+        q_norm = _normalize_for_search(q)
+        for name, appid in cache:
+            if len(rows) >= 8:
+                break
+            if _matches_normalized(q_norm, _normalize_for_search(name)):
+                _add(appid, name)
+    return json.dumps(rows[:8])
+
+
+def _bridge_get_app_summaries(bridge, ids_json):
+    ids = _json_id_list(ids_json, limit=40)
+    try:
+        from sff.game_list_fallback import get_app_name
+    except Exception:
+        get_app_name = lambda _aid: ""
+    out = []
+    for app_id in ids:
+        name = get_app_name(app_id) or f"App {app_id}"
+        out.append({"app_id": app_id, "name": name})
+    return json.dumps(out)
+
+
 def _json_id_list(raw, limit=40):
     try:
         data = json.loads(raw) if isinstance(raw, str) and raw else (raw or [])
@@ -1962,32 +1996,45 @@ def _bridge_get_store_game_details(bridge, app_id):
 
     def _do():
         from sff.core.cache import get_cache
-        from sff.network.steam_store import get_app_details_from_store, get_review_summary
+        from sff.network.steam_store import get_app_details_from_store, steam_api_language
         from sff.game_list_fallback import get_dlc_name, get_game_info, get_app_name
         from sff.gui.web_bridge import _latest_public_buildid_from_cache
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
 
+        local_name = get_app_name(int(app_id)) or f"App {app_id}"
+        header = f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/header.jpg"
+        bridge._emit_task_result(
+            "game_details", True, "",
+            app_id=app_id,
+            partial=True,
+            name=local_name,
+            header_image=header,
+        )
+
+        lang_code = get_setting(Settings.LANGUAGE) or "en"
+        steam_lang = steam_api_language(lang_code)
         cache = get_cache()
-        cache_key = f"store_details_v3_{app_id}"
+        cache_key = f"store_details_v4_{steam_lang}_{app_id}"
         details = cache.get(cache_key)
         if not isinstance(details, dict):
-            fetched = get_app_details_from_store(app_id, include_page_media=True)
+            fetched = get_app_details_from_store(
+                app_id, include_page_media=False, language=steam_lang
+            )
             details = fetched if isinstance(fetched, dict) else {}
+            if details and not (details.get("movies") or details.get("trailer_urls")):
+                try:
+                    fetched = get_app_details_from_store(
+                        app_id, include_page_media=True, language=steam_lang
+                    )
+                    if isinstance(fetched, dict):
+                        details = fetched
+                except Exception:
+                    pass
             if details:
                 cache.set(cache_key, details, ttl=_DETAILS_TTL)
         if not details.get("name"):
-            details["name"] = get_app_name(int(app_id)) or f"App {app_id}"
-
-        reviews = {}
-        try:
-            reviews = get_review_summary(app_id) or {}
-        except Exception:
-            reviews = {}
-        crack = {}
-        try:
-            from sff.network.isitcracked import lookup_game
-            crack = lookup_game(details.get("name") or "", app_id) or {}
-        except Exception:
-            crack = {}
+            details["name"] = local_name
 
         dlc_ids = details.get("dlc") or []
         dlc_rows = []
@@ -2001,14 +2048,6 @@ def _bridge_get_store_game_details(bridge, app_id):
         installed = False
         installed_buildid = ""
         try:
-            raw = bridge.get_installed_games()
-            for g in json.loads(raw or "[]"):
-                if str(g.get("app_id")) == app_id:
-                    installed = True
-                    break
-        except Exception:
-            pass
-        try:
             from sff.core.storage.vdf import get_steam_libs, vdf_load
             if bridge._steam_path:
                 for lib in get_steam_libs(bridge._steam_path):
@@ -2021,15 +2060,19 @@ def _bridge_get_store_game_details(bridge, app_id):
         except Exception:
             pass
 
-        favs = _json_id_list(
-            __import__("sff.core.storage.settings", fromlist=["get_setting"]).get_setting(
-                __import__("sff.core.structs", fromlist=["Settings"]).Settings.KRAKEN_FAVORITES
-            ) or "[]"
-        )
-        protection = str(crack.get("protection") or details.get("drm_notice") or "").strip()
+        favs = _json_id_list(get_setting(Settings.KRAKEN_FAVORITES) or "[]")
+        movies = details.get("movies") or []
+        for movie in movies:
+            urls = [u for u in (movie.get("urls") or []) if u and ".m3u8" not in str(u).lower()]
+            urls.sort(key=lambda u: (0 if str(u).lower().endswith(".mp4") else 1, str(u)))
+            movie["urls"] = urls
+            if urls:
+                movie["url"] = urls[0]
+        trailer_urls = [u for u in (details.get("trailer_urls") or []) if ".m3u8" not in str(u).lower()]
+        trailer_urls.sort(key=lambda u: (0 if str(u).lower().endswith(".mp4") else 1, str(u)))
         payload = {
             "app_id": app_id,
-            "name": details.get("name") or f"App {app_id}",
+            "name": details.get("name") or local_name,
             "short_description": details.get("short_description") or "",
             "about_html": details.get("about_html") or details.get("detailed_html") or "",
             "release_date": details.get("release_date") or info.get("release_date") or "",
@@ -2039,13 +2082,13 @@ def _bridge_get_store_game_details(bridge, app_id):
             "categories": details.get("categories") or [],
             "screenshots": details.get("screenshots") or [],
             "screenshot_thumbs": details.get("screenshot_thumbs") or [],
-            "header_image": details.get("header_image") or info.get("header_image") or "",
+            "header_image": details.get("header_image") or info.get("header_image") or header,
             "background": details.get("background") or "",
             "website": details.get("website") or "",
-            "trailer": details.get("trailer") or "",
-            "trailer_urls": details.get("trailer_urls") or [],
+            "trailer": trailer_urls[0] if trailer_urls else (details.get("trailer") or ""),
+            "trailer_urls": trailer_urls,
             "trailer_poster": details.get("trailer_poster") or "",
-            "movies": details.get("movies") or [],
+            "movies": movies,
             "pc_requirements": details.get("pc_requirements") or "",
             "pc_requirements_recommended": details.get("pc_requirements_recommended") or "",
             "dlc": dlc_rows,
@@ -2057,22 +2100,67 @@ def _bridge_get_store_game_details(bridge, app_id):
             "deck_category": details.get("deck_category") or "",
             "drm_notice": details.get("drm_notice") or "",
             "account_notice": details.get("account_notice") or "",
-            "protection": protection,
-            "crack_status": crack.get("status") or "",
-            "crack_url": crack.get("url") or "",
-            "crack_days": crack.get("days") or "",
-            "review_label": reviews.get("review_label") or "",
-            "review_count": reviews.get("review_count") or details.get("review_count") or 0,
-            "review_percent": reviews.get("review_percent") or 0,
-            "review_recent_label": reviews.get("review_recent_label") or "",
-            "review_recent_count": reviews.get("review_recent_count") or 0,
-            "review_recent_percent": reviews.get("review_recent_percent") or 0,
-            "metacritic": details.get("metacritic") or "",
+            "protection": str(details.get("drm_notice") or "").strip(),
+            "language": steam_lang,
         }
+        try:
+            from sff.network.crack_catalog import catalog_fields
+            payload.update(catalog_fields(
+                app_id,
+                payload.get("name") or "",
+                payload.get("protection") or "",
+                payload.get("crack_status") or "",
+            ))
+        except Exception:
+            pass
         return payload
 
     def _ok(payload):
         bridge._emit_task_result("game_details", True, "", **(payload or {"app_id": app_id}))
+
+        def _extras():
+            from sff.network.steam_store import get_review_summary
+            reviews = {}
+            try:
+                reviews = get_review_summary(app_id) or {}
+            except Exception:
+                reviews = {}
+            crack = {}
+            try:
+                from sff.network.isitcracked import lookup_game
+                crack = lookup_game((payload or {}).get("name") or "", app_id) or {}
+            except Exception:
+                crack = {}
+            protection = str(
+                crack.get("protection") or (payload or {}).get("protection") or ""
+            ).strip()
+            from sff.network.crack_catalog import catalog_fields
+            extra = {
+                "app_id": app_id,
+                "extra_only": True,
+                "protection": protection,
+                "crack_status": crack.get("status") or "",
+                "crack_url": crack.get("url") or "",
+                "crack_days": crack.get("days") or "",
+                "review_label": reviews.get("review_label") or "",
+                "review_count": reviews.get("review_count") or 0,
+                "review_percent": reviews.get("review_percent") or 0,
+                "review_recent_label": reviews.get("review_recent_label") or "",
+                "review_recent_count": reviews.get("review_recent_count") or 0,
+                "review_recent_percent": reviews.get("review_recent_percent") or 0,
+            }
+            extra.update(catalog_fields(
+                app_id,
+                (payload or {}).get("name") or "",
+                protection,
+                extra["crack_status"],
+            ))
+            return extra
+
+        def _extras_ok(extra):
+            bridge._emit_task_result("game_details", True, "", **(extra or {"app_id": app_id}))
+
+        bridge._run_async(_extras, on_done=_extras_ok)
 
     def _err(msg):
         bridge._emit_task_result("game_details", False, str(msg) or "Could not load game details.", app_id=app_id)

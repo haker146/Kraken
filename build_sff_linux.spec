@@ -223,6 +223,7 @@ a = Analysis(
         'sff.image_cache',
         'sff.downloads.download_manager',
         'sff.network.store_browser',
+        'sff.network.crack_catalog',
         'sff.ui.tray_icon',
         'sff.uri_handler',
         'sff.tools',

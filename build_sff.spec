@@ -161,6 +161,7 @@ hiddenimports = [
     'googleapiclient.discovery',
     'googleapiclient.http',
     'sff.game.fix_game.online_fix_applier',
+    'sff.network.crack_catalog',
     'sff.linux.steam_process',
     'psutil',
     'colorama',
