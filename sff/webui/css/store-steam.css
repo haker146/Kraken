@@ -1,0 +1,771 @@
+/* Steam-style Store listing + game details */
+
+#page-store {
+  --steam-row-bg: color-mix(in srgb, var(--card-bg) 82%, #0b1520);
+  --steam-row-hover: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  --steam-muted: color-mix(in srgb, var(--fg) 62%, transparent);
+}
+
+#page-store .store-page-header {
+  margin-bottom: 8px;
+}
+
+#page-store .store-page-header h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+#page-store #store-sort-ui {
+  display: none;
+}
+
+#page-store .store-controls {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.store-search-wrap {
+  flex: 1;
+  min-width: 220px;
+  position: relative;
+}
+
+#page-store #store-search {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #316282;
+  border: 0;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 14px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 72px 0 14px;
+  width: 100%;
+}
+
+#page-store #store-search::-webkit-search-decoration,
+#page-store #store-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#page-store #store-search::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+#page-store #store-search:focus {
+  background: #3d7ea6;
+  outline: none;
+}
+
+.store-search-clear,
+.store-search-go {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  display: flex;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  top: 0;
+}
+
+.store-search-clear {
+  font-size: 20px;
+  line-height: 1;
+  right: 36px;
+  width: 28px;
+}
+
+.store-search-go {
+  right: 0;
+  width: 40px;
+}
+
+.store-search-clear:hover,
+.store-search-go:hover {
+  color: #fff;
+}
+
+#page-store .store-options {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+#page-store .store-options .btn-sm {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+#page-store .view-toggle {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 2px;
+}
+
+.store-suggest {
+  background: #1b2838;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  left: 0;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 10px 0 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+}
+
+.store-suggest-label {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 12px 8px;
+}
+
+.store-suggest-empty {
+  color: #8f98a0;
+  font-size: 12px;
+  padding: 8px 12px 12px;
+}
+
+.store-suggest-item {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 120px minmax(0, 1fr) auto;
+  min-height: 45px;
+  padding: 0 12px 0 0;
+  text-align: left;
+  width: 100%;
+}
+
+.store-suggest-item:hover,
+.store-suggest-item.is-active {
+  background: #67c1f5;
+  color: #1b2838;
+}
+
+.store-suggest-cap {
+  background: #000;
+  height: 45px;
+  overflow: hidden;
+  width: 120px;
+}
+
+.store-suggest-cap img {
+  display: block;
+  height: 45px;
+  object-fit: cover;
+  width: 120px;
+}
+
+.store-suggest-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-suggest-meta {
+  color: #8f98a0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.store-suggest-item:hover .store-suggest-meta,
+.store-suggest-item.is-active .store-suggest-meta {
+  color: #1b2838;
+}
+
+.store-suggest-item .steam-status-box {
+  height: 24px;
+}
+
+.store-suggest-item .steam-discount {
+  font-size: 10px;
+  height: 24px;
+  padding: 0 6px;
+}
+
+.store-top-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 14px 0 0;
+  padding: 0 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.store-top-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #8f98a0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-bottom: -1px;
+  padding: 8px 0 10px;
+  text-transform: none;
+}
+
+.store-top-tab:hover {
+  color: #c6d4df;
+}
+
+.store-top-tab.active {
+  color: #fff;
+  border-bottom-color: #fff;
+  font-weight: 600;
+}
+
+#store-list.steam-store-list {
+  background: #16202d;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 0;
+  overflow: hidden;
+}
+
+.steam-row {
+  background: #1b2838;
+  border: 0;
+  border-radius: 0;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 184px minmax(0, 1fr) auto;
+  min-height: 69px;
+  overflow: hidden;
+  position: relative;
+}
+
+.steam-row:nth-child(even) {
+  background: #16202d;
+}
+
+.steam-row:hover,
+.steam-row:focus-visible {
+  background: #1c3a52;
+  outline: none;
+}
+
+.steam-row-capsule {
+  background: #000;
+  height: 69px;
+  overflow: hidden;
+  width: 184px;
+}
+
+.steam-row-capsule img,
+.steam-row-capsule .game-card-img-placeholder {
+  display: block;
+  height: 69px;
+  object-fit: cover;
+  width: 184px;
+}
+
+.steam-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-width: 0;
+  padding: 8px 12px;
+}
+
+.steam-row-name {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steam-row-desc,
+.steam-row-shots,
+.steam-row-facts,
+.steam-row-review {
+  display: none;
+}
+
+.steam-row-tags {
+  color: #8f98a0;
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steam-row-released {
+  color: #8f98a0;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.steam-row-status {
+  align-items: center;
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 10px 0 12px;
+}
+
+.steam-status-box {
+  align-items: stretch;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 32px;
+  max-width: none;
+  overflow: hidden;
+}
+
+.steam-discount {
+  align-items: center;
+  background: #4c6b22;
+  color: #beee11;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  height: 32px;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  padding: 0 7px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.steam-status-copy {
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.steam-status-copy .steam-protection {
+  color: #beee11;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.steam-row .steam-status-copy .steam-status-sub {
+  display: none;
+}
+
+.steam-status-copy .steam-status-sub {
+  color: var(--steam-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.steam-row.steam-status--uncracked .steam-discount {
+  background: #6b2222;
+  color: #ff8a8a;
+}
+
+.steam-row.steam-status--uncracked .steam-protection {
+  color: #ffb4b4;
+}
+
+.steam-row.steam-status--hypervisor .steam-discount {
+  background: #3d226b;
+  color: #d7b8ff;
+}
+
+.steam-row.steam-status--hypervisor .steam-protection {
+  color: #d7b8ff;
+}
+
+.steam-row.steam-status--unreleased .steam-discount,
+.steam-row.steam-status--unknown .steam-discount {
+  background: #3a4654;
+  color: #c6d4e1;
+}
+
+.steam-row.steam-status--cracked .steam-discount {
+  background: #4c6b22;
+  color: #beee11;
+}
+
+#store-loading.steam-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#store-loading.steam-loading .steam-skel-row {
+  height: 69px;
+  min-height: 69px;
+}
+
+/* Game details — Steam store page */
+
+.game-details {
+  background: #1b2838;
+  color: #c7d5e0;
+  z-index: 1200;
+}
+
+.game-details #gd-trailer {
+  height: 100%;
+  max-height: none;
+  width: 100%;
+}
+
+.gd-steam-page {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 18px 20px 48px;
+}
+
+.gd-steam-titlebar h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 36px 2px 0;
+}
+
+.gd-steam-titlebar .game-details-sub {
+  font-size: 12px;
+  margin: 0 0 8px;
+  min-height: 0;
+}
+
+.gd-steam-top {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1.65fr) minmax(260px, 324px);
+  margin-top: 8px;
+}
+
+.gd-media-main {
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gd-media-main video,
+.gd-media-main img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.gd-media-main video.hidden,
+.gd-media-main img.hidden {
+  display: none !important;
+}
+
+.gd-thumbs {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gd-thumbs button {
+  background: #000;
+  border: 2px solid transparent;
+  border-radius: 2px;
+  cursor: pointer;
+  flex: 0 0 86px;
+  height: 48px;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.gd-thumbs button.active,
+.gd-thumbs button:hover {
+  border-color: #66c0f4;
+}
+
+.gd-thumbs img {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.gd-thumb-play {
+  color: #fff;
+  font-size: 11px;
+  left: 4px;
+  position: absolute;
+  text-shadow: 0 1px 4px #000;
+  top: 2px;
+}
+
+.gd-sidebar {
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28));
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 12px;
+}
+
+.gd-sidebar-header {
+  display: block;
+  width: 100%;
+}
+
+.gd-sidebar-desc {
+  color: #c6d4df;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 10px 12px 8px;
+}
+
+.gd-reviews {
+  font-size: 12px;
+  margin: 0 12px 8px;
+}
+
+.gd-review-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 92px minmax(0, 1fr);
+  margin: 3px 0;
+}
+
+.gd-review-label {
+  color: #8f98a0;
+  font-size: 10px;
+  text-transform: none;
+}
+
+.gd-review-value {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gd-review-count {
+  color: #8f98a0;
+  font-weight: 400;
+}
+
+.gd-reviews .positive { color: #66c0f4; }
+.gd-reviews .mixed { color: #b9a074; }
+.gd-reviews .negative { color: #c35c2c; }
+
+.gd-meta {
+  display: grid;
+  gap: 4px;
+  margin: 0 12px 10px;
+}
+
+.gd-meta > div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.gd-meta dt {
+  color: #8f98a0;
+  font-size: 10px;
+}
+
+.gd-meta dd {
+  font-size: 12px;
+  margin: 0;
+}
+
+.gd-crack {
+  margin: 0 12px 10px;
+}
+
+.gd-tags-label {
+  color: #8f98a0;
+  font-size: 10px;
+  margin: 0 12px 4px;
+}
+
+.gd-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 12px 12px;
+}
+
+.gd-sidebar .game-details-actions {
+  margin: 0 12px;
+}
+
+.gd-about {
+  margin-top: 24px;
+}
+
+.gd-about h2,
+.gd-steam-page > h2,
+.gd-dlc-head h2 {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  margin: 18px 0 10px;
+  padding-bottom: 4px;
+  text-transform: none;
+}
+
+.gd-about-html {
+  color: #c7d5e0;
+  font-size: 13px;
+  line-height: 1.55;
+  max-width: 920px;
+}
+
+.gd-about-html img,
+.gd-about-html video {
+  border-radius: 2px;
+  display: block;
+  height: auto;
+  margin: 12px auto;
+  max-width: 100%;
+}
+
+.gd-about-html h1,
+.gd-about-html h2,
+.gd-about-html h3 {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 6px;
+}
+
+.gd-dlc-section {
+  margin-top: 22px;
+}
+
+.gd-dlc-head {
+  align-items: baseline;
+  display: flex;
+  gap: 12px;
+}
+
+.gd-dlc-head span {
+  color: #8f98a0;
+  font-size: 12px;
+}
+
+.gd-dlc-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+.gd-dlc-select-all {
+  font-size: 12px;
+}
+
+.gd-dlc-list {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  list-style: none;
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 0;
+}
+
+.gd-dlc-row label {
+  align-items: center;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 18px minmax(0, 1fr) 72px 88px;
+  padding: 7px 10px;
+}
+
+.gd-dlc-row:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.gd-dlc-row.is-active .gd-dlc-state {
+  color: #a1d159;
+}
+
+.gd-dlc-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gd-dlc-id,
+.gd-dlc-state,
+.gd-dlc-empty {
+  color: #8f98a0;
+  font-size: 11px;
+}
+
+.gd-dlc-empty {
+  padding: 10px;
+}
+
+.game-details-close {
+  position: fixed;
+  right: 18px;
+  top: 12px;
+  z-index: 4;
+}
+
+@media (max-width: 720px) {
+  .steam-row {
+    grid-template-columns: 120px minmax(0, 1fr) auto;
+  }
+
+  .steam-row-capsule,
+  .steam-row-capsule img,
+  .steam-row-capsule .game-card-img-placeholder {
+    height: 45px;
+    width: 120px;
+  }
+
+  .steam-row-status {
+    padding: 0 8px 0 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .gd-steam-top {
+    grid-template-columns: 1fr;
+  }
+}

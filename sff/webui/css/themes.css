@@ -1,0 +1,27 @@
+/* Steam store palette — the only theme for now */
+
+:root,
+[data-theme="steam"],
+[data-theme="dark"],
+[data-theme="steam-gld"] {
+    --bg: #1b2838;
+    --fg: #c7d5e0;
+    --card-bg: #16202d;
+    --accent: #66c0f4;
+    --border: #2a475e;
+    --btn-bg: #2a475e;
+    --btn-hover: #3d6c8d;
+    --input-bg: #316282;
+    --sidebar-bg: #171a21;
+    --sidebar-active: #66c0f4;
+    --muted: #8f98a0;
+    --header-bg: #171a21;
+    --row-bg: #1b2838;
+    --row-alt: #16202d;
+    --row-hover: #1c3a52;
+    --discount-bg: #4c6b22;
+    --discount-fg: #beee11;
+    --search-bg: #316282;
+    --search-focus: #3d7ea6;
+    --bg-image: none;
+}

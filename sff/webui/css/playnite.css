@@ -1,0 +1,252 @@
+/* Kraken 1.0 discovery + details */
+
+.steam-status-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    width: calc(100% - 20px);
+    text-align: left;
+}
+.steam-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #888;
+    flex-shrink: 0;
+}
+.steam-status-chip.state-running .steam-status-dot { background: #3dd68c; }
+.steam-status-chip.state-stopped .steam-status-dot { background: #f0c040; }
+.steam-status-chip.state-missing .steam-status-dot { background: #f06060; }
+
+.catalog-stale-banner {
+    margin: 8px 16px 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border-left: 3px solid #f0c040;
+    background: rgba(240, 192, 64, 0.12);
+    font-size: 13px;
+}
+.catalog-stale-banner.hidden { display: none; }
+
+.home-hero {
+    position: relative;
+    height: min(42vh, 380px);
+    min-height: 220px;
+    margin: 12px 16px 8px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #0d0a18;
+}
+.home-hero-slides { width: 100%; height: 100%; }
+.home-hero-slide {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    background-size: cover;
+    background-position: center;
+    cursor: pointer;
+}
+.home-hero-slide.active { opacity: 1; z-index: 1; }
+.home-hero-slide::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(8,6,16,0.88) 0%, rgba(8,6,16,0.25) 55%, transparent 100%);
+}
+.home-hero-copy {
+    position: absolute;
+    left: 28px;
+    bottom: 28px;
+    z-index: 2;
+    max-width: 56%;
+}
+.home-hero-copy h2 { font-size: 28px; margin: 0 0 8px; }
+.home-hero-copy p { opacity: 0.85; margin: 0 0 12px; font-size: 13px; }
+.home-hero-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 3;
+    width: 36px;
+    height: 56px;
+    border: none;
+    background: rgba(0,0,0,0.35);
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    left: 8px;
+}
+.home-hero-nav-next { left: auto; right: 8px; }
+.home-hero-dots {
+    position: absolute;
+    bottom: 10px;
+    right: 18px;
+    z-index: 3;
+    display: flex;
+    gap: 6px;
+}
+.home-hero-dots button {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.35);
+    cursor: pointer;
+    padding: 0;
+}
+.home-hero-dots button.active { background: #fff; }
+
+.home-shelves {
+    padding: 4px 16px 24px;
+    overflow-y: auto;
+    height: calc(100vh - min(42vh, 380px) - 40px);
+}
+.home-shelf { margin-bottom: 22px; }
+.home-shelf h3 { font-size: 15px; margin: 0 0 10px; opacity: 0.9; }
+.home-shelf-row {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+}
+.home-shelf-card {
+    flex: 0 0 140px;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card-bg, rgba(255,255,255,0.04));
+}
+.home-shelf-card img {
+    width: 140px;
+    height: 210px;
+    object-fit: cover;
+    display: block;
+}
+.home-shelf-card span {
+    display: block;
+    padding: 6px 8px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    z-index: 4;
+}
+.home-empty.hidden { display: none; }
+
+.game-details {
+    position: fixed;
+    inset: 0 0 0 200px;
+    z-index: 200;
+    background: var(--bg, #141414);
+    overflow-y: auto;
+}
+.game-details.hidden { display: none; }
+.game-details-hero {
+    position: relative;
+    min-height: 280px;
+}
+.game-details-hero > img {
+    width: 100%;
+    height: 320px;
+    object-fit: cover;
+    display: block;
+}
+.game-details-hero-shade {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, var(--bg, #141414) 0%, transparent 55%);
+}
+.game-details-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    z-index: 2;
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.5);
+    color: #fff;
+    font-size: 22px;
+    cursor: pointer;
+}
+.game-details-hero-meta {
+    position: absolute;
+    left: 24px;
+    bottom: 20px;
+    display: flex;
+    gap: 18px;
+    align-items: flex-end;
+    z-index: 2;
+}
+.game-details-poster {
+    width: 140px;
+    height: 210px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+.game-details-sub { opacity: 0.8; font-size: 13px; margin: 4px 0 10px; }
+.game-details-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.game-details-body { padding: 16px 28px 40px; max-width: 960px; }
+.game-details-desc { line-height: 1.5; opacity: 0.9; }
+.game-details-shots {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin: 16px 0;
+}
+.game-details-shots img {
+    height: 110px;
+    border-radius: 6px;
+}
+.game-details-req { margin: 16px 0; }
+.game-details-req pre {
+    white-space: pre-wrap;
+    font-size: 12px;
+    opacity: 0.85;
+}
+.game-details-dlc { padding-left: 18px; }
+.game-details-dlc li { margin: 4px 0; font-size: 13px; }
+.game-details-links { display: flex; gap: 14px; flex-wrap: wrap; }
+
+.empty-state {
+    padding: 48px 16px;
+    text-align: center;
+    opacity: 0.75;
+    font-size: 14px;
+}
+#gd-trailer { width: 100%; max-height: 360px; border-radius: 8px; background: #000; }
+.game-details-links a { color: var(--accent, #9b8cff); }
+
+.empty-state .btn { margin-top: 12px; }
+
+@media (max-width: 900px) {
+    .game-details { inset: 0; }
+    .home-hero-copy { max-width: 80%; }
+    .home-hero-copy h2 { font-size: 20px; }
+    .home-hero { min-height: 180px; height: min(36vh, 280px); }
+    .game-details-hero-meta { left: 12px; right: 12px; gap: 12px; }
+    .game-details-poster { width: 96px; height: 144px; }
+    .game-details-body { padding: 12px 16px 32px; }
+    .home-shelf-row { gap: 8px; }
+}
