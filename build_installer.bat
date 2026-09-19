@@ -8,7 +8,7 @@ for /f "tokens=3" %%v in ('findstr "^VERSION" sff\core\strings.py') do set APP_V
 set APP_VERSION=%APP_VERSION:"=%
 if "%APP_VERSION%"=="" (
     echo Could not read VERSION from sff\core\strings.py
-    pause
+    if /i not "%CI%"=="true" pause
     exit /b 1
 )
 echo Version: %APP_VERSION%
@@ -17,7 +17,7 @@ echo Version: %APP_VERSION%
 python -c "import re,sys; c=open('installer.nsi').read(); c=re.sub(r'(!define VERSION\s+\")[^\"]+\"', r'\g<1>%APP_VERSION%\"', c); open('installer.nsi','w').write(c)"
 if %errorlevel% neq 0 (
     echo Failed to patch installer.nsi!
-    pause
+    if /i not "%CI%"=="true" pause
     exit /b 1
 )
 echo Patched installer.nsi to version %APP_VERSION%
@@ -32,7 +32,7 @@ call .venv\Scripts\activate.bat 2>nul || (
 python -m PyInstaller build_sff_gui.spec --noconfirm
 if %errorlevel% neq 0 (
     echo PyInstaller build failed.
-    pause
+    if /i not "%CI%"=="true" pause
     exit /b 1
 )
 
@@ -43,15 +43,15 @@ goto nsis_found
 :nsis_missing
     echo NSIS not found at "%NSIS%"
     echo Install NSIS from https://nsis.sourceforge.io/Download
-    pause
+    if /i not "%CI%"=="true" pause
     exit /b 1
 :nsis_found
 "%NSIS%" /DVERSION=%APP_VERSION% installer.nsi
 if %errorlevel% neq 0 (
     echo NSIS compile failed.
-    pause
+    if /i not "%CI%"=="true" pause
     exit /b 1
 )
 
 echo Done. Installer written to Kraken-%APP_VERSION%-Setup.exe
-pause
+if /i not "%CI%"=="true" pause

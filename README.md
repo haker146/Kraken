@@ -33,7 +33,7 @@ Kraken does not replace Steam. After a game is added, launch and library life st
 
 ### Windows
 
-1. Download `Kraken-1.0.0-Setup.exe` or `Kraken-1.0.0-windows.zip` from [Releases](https://github.com/haker146/Kraken/releases/latest). Run `Kraken_GUI.exe`.
+1. Download `Kraken-1.0.0-Setup.exe` (installer) or `Kraken-1.0.0-windows-portable.zip` from [Releases](https://github.com/haker146/Kraken/releases/latest). Run `Kraken_GUI.exe`.
 2. Open **Tools** → **Auto LC Setup** to install LumaCore into your Steam folder (Windows only).
 3. Set the Steam path in **Settings** if it was not detected. Use the sidebar chip to confirm Steam is found.
 4. On **Home** or **Store**, open a game → **Download**. When it is installed, **Play in Steam**.

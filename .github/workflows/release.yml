@@ -7,7 +7,8 @@ on:
 permissions:
   contents: write
 jobs:
-  build-linux:
+  linux:
+    name: Linux
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -64,12 +65,15 @@ jobs:
             Kraken-${VERSION}-x86_64.AppImage \
             steamidra_install.sh \
             kraken.png
-      - name: Upload Linux artifact
+      - name: Upload Linux
         uses: actions/upload-artifact@v4
         with:
-          name: linux-release
+          name: linux
           path: Kraken-*-linux.zip
-  build-windows:
+          if-no-files-found: error
+
+  windows:
+    name: Windows
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -96,7 +100,7 @@ jobs:
             Write-Host "Google Drive OAuth secrets are present"
           }
           python -c "from pathlib import Path; import os; cid=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_ID') or ''; secret=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_SECRET') or ''; Path('sff/core/_gc.py').write_text('# SteaMidra - generated in CI; do not commit\n' + 'def get_ci():\n' + f'    return {cid!r}\n\n' + 'def get_cs():\n' + f'    return {secret!r}\n', encoding='utf-8')"
-      - name: Run full build_installer.bat
+      - name: Build PyInstaller folder and NSIS installer
         shell: cmd
         run: |
           python -m venv .venv
@@ -112,21 +116,31 @@ jobs:
             exit /b 1
           )
           powershell -NoProfile -Command "$bad = Get-ChildItem -LiteralPath 'dist\Kraken_GUI' -Recurse -File | Where-Object { $_.Name -match '\.so(\..*)?$' -or $_.FullName -match '(?i)(^|[\\/])x86_64-linux-gnu([\\/]|$)' -or $_.FullName -match '(?i)(^|[\\/])linux_x86_64([\\/]|$)' }; if ($bad) { $bad | Select-Object -First 40 FullName; throw 'Linux binary files leaked into Windows package' }"
-      - name: Create portable Windows zip
+      - name: Create portable zip
         shell: pwsh
         run: |
           $version = (Select-String -Path "sff\core\strings.py" -Pattern '^VERSION = "(.+)"').Matches.Groups[1].Value
           echo "Building Windows portable zip for version: $version"
-          Compress-Archive -Force -Path "dist\Kraken_GUI" -DestinationPath "Kraken-${version}-windows.zip"
-      - name: Upload Windows artifacts
+          Compress-Archive -Force -Path "dist\Kraken_GUI" -DestinationPath "Kraken-${version}-windows-portable.zip"
+          $setup = "Kraken-${version}-Setup.exe"
+          if (-not (Test-Path -LiteralPath $setup)) {
+            throw "NSIS installer missing: $setup"
+          }
+      - name: Upload portable
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release
-          path: |
-            Kraken-*-windows.zip
-            Kraken-*-Setup.exe
+          name: windows-portable
+          path: Kraken-*-windows-portable.zip
+          if-no-files-found: error
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: Kraken-*-Setup.exe
+          if-no-files-found: error
+
   release:
-    needs: [build-linux, build-windows]
+    needs: [linux, windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -138,9 +152,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            linux-release/Kraken-*-linux.zip
-            windows-release/Kraken-*-windows.zip
-            windows-release/Kraken-*-Setup.exe
+            linux/Kraken-*-linux.zip
+            windows-portable/Kraken-*-windows-portable.zip
+            windows-installer/Kraken-*-Setup.exe
           draft: false
           prerelease: false
           body_path: release-note.md
