@@ -37,10 +37,6 @@
                 <svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
                 <span class="nav-label" data-i18n="Library">Library</span>
             </button>
-            <button class="nav-item" data-page="downloads" data-tooltip="Active downloads & history">
-                <svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span class="nav-label" data-i18n="Downloads">Downloads</span>
-            </button>
             <button class="nav-item platform-win" data-page="downgrade" data-tooltip="Pin an installed game to an older build by Build ID">
                 <svg class="nav-icon" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
                 <span class="nav-label" data-i18n="Downgrade">Downgrade</span>
@@ -1696,6 +1692,13 @@ start YourGame-Shipping.exe</pre>
                         <span class="dl-desc">Downloads game files directly using DepotDownloaderMod with keys from the selected source (requires .NET 9)</span>
                     </div>
                 </button>
+                <div id="dl-live" class="dl-live hidden">
+                    <div class="dl-live-head">Progress</div>
+                    <div id="dl-live-status" class="dl-live-status">Starting…</div>
+                    <div class="progress-bar dl-live-bar"><div id="dl-live-fill" class="progress-fill" style="width:0%"></div></div>
+                    <pre id="dl-live-log" class="dl-live-log"></pre>
+                    <div id="dl-live-queue"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn modal-cancel">Cancel</button>
@@ -2332,8 +2335,8 @@ start YourGame-Shipping.exe</pre>
                     <span id="gd-dlc-summary"></span>
                 </div>
                 <div id="gd-dlc-toolbar" class="gd-dlc-toolbar hidden">
-                    <label class="gd-dlc-select-all"><input type="checkbox" id="gd-dlc-all" checked> Select missing</label>
-                    <button type="button" id="gd-dlc-activate" class="btn btn-primary">Activate selected on Steam</button>
+                    <label class="gd-dlc-select-all"><input type="checkbox" id="gd-dlc-all"> Select missing</label>
+                    <button type="button" id="gd-dlc-activate" class="btn btn-primary">Apply DLC selection</button>
                 </div>
                 <ul id="gd-dlc" class="gd-dlc-list"></ul>
             </section>

@@ -34,7 +34,7 @@ a:hover { text-decoration: underline; }
     position: fixed;
     left: 0;
     top: 0;
-    z-index: 100;
+    z-index: 300;
     transition: width 0.25s ease;
 }
 
@@ -675,7 +675,7 @@ input:focus, select:focus {
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 1000;
+    z-index: 5000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -717,6 +717,11 @@ input:focus, select:focus {
 
 .modal-content.modal-lg {
     max-width: 700px;
+}
+
+#download-modal .modal-content {
+    max-width: 560px;
+    max-height: 90vh;
 }
 
 .modal-header {

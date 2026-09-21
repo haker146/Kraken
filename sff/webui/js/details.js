@@ -64,7 +64,7 @@ window.GameDetails = (function() {
         root.classList.remove('hidden');
         root.setAttribute('aria-hidden', 'false');
         document.getElementById('gd-title').textContent = name || ('App ' + _appId);
-        document.getElementById('gd-sub').textContent = 'Loading details…';
+        document.getElementById('gd-sub').textContent = '';
         document.getElementById('gd-desc').textContent = '';
         var about = document.getElementById('gd-about');
         if (about) about.innerHTML = '';
@@ -73,21 +73,9 @@ window.GameDetails = (function() {
         var thumbs = document.getElementById('gd-thumbs');
         if (thumbs) thumbs.innerHTML = '';
         document.getElementById('gd-req').textContent = '';
-        var header = document.getElementById('gd-header-img');
-        if (header) {
-            header.removeAttribute('src');
-            header.alt = name || '';
-            header.src = _hero(_appId);
-        }
+        _blankMedia(name);
         var page = root.querySelector('.gd-steam-page');
         if (page) page.classList.add('is-loading');
-        var vid = document.getElementById('gd-trailer');
-        var mediaImg = document.getElementById('gd-media-image');
-        if (vid) {
-            try { vid.pause(); vid.removeAttribute('src'); } catch (e) {}
-            vid.classList.add('hidden');
-        }
-        if (mediaImg) mediaImg.classList.add('hidden');
         _setText('gd-release', '—');
         _setText('gd-dev', '—');
         _setText('gd-pub', '—');
@@ -109,7 +97,8 @@ window.GameDetails = (function() {
         _trailerIdx = 0;
         _fallbackImage = _hero(_appId);
         Bridge.call('add_kraken_recent', _appId);
-        Bridge.call('get_store_game_details', _appId);
+        var lang = document.documentElement.getAttribute('lang') || '';
+        Bridge.call('get_store_game_details', _appId, lang);
         Bridge.call('dlc_check_get_list', _appId);
         _bindKeys();
     }
@@ -152,6 +141,32 @@ window.GameDetails = (function() {
 
     function _esc(value) {
         return window.Components ? Components.escapeHtml(value) : String(value || '');
+    }
+
+    function _blankMedia(name) {
+        var header = document.getElementById('gd-header-img');
+        if (header) {
+            header.onload = null;
+            header.onerror = null;
+            header.removeAttribute('src');
+            header.alt = name || '';
+        }
+        var vid = document.getElementById('gd-trailer');
+        var mediaImg = document.getElementById('gd-media-image');
+        if (vid) {
+            try {
+                vid.pause();
+                vid.removeAttribute('src');
+                vid.removeAttribute('poster');
+            } catch (e) {}
+            vid.classList.add('hidden');
+        }
+        if (mediaImg) {
+            mediaImg.removeAttribute('src');
+            mediaImg.classList.add('hidden');
+        }
+        var thumbs = document.getElementById('gd-thumbs');
+        if (thumbs) thumbs.innerHTML = '';
     }
 
     function _hero(appId) {
@@ -267,7 +282,8 @@ window.GameDetails = (function() {
             var on = !!dlc.in_applist;
             return '<li class="gd-dlc-row' + (on ? ' is-active' : '') + '">' +
                 '<label>' +
-                '<input type="checkbox" class="gd-dlc-cb" data-appid="' + _esc(dlc.id) + '">' +
+                '<input type="checkbox" class="gd-dlc-cb" data-appid="' + _esc(dlc.id) +
+                '" data-active="' + (on ? '1' : '0') + '"' + (on ? ' checked' : '') + '>' +
                 '<span class="gd-dlc-name">' + _esc(dlc.name || ('DLC ' + dlc.id)) + '</span>' +
                 '<span class="gd-dlc-id">' + _esc(dlc.id) + '</span>' +
                 '<span class="gd-dlc-state">' + (on ? 'Active' : 'Not active') + '</span>' +
@@ -279,16 +295,23 @@ window.GameDetails = (function() {
     }
 
     function _activateSelectedDlc() {
-        var ids = [];
-        document.querySelectorAll('#gd-dlc .gd-dlc-cb:checked:not(:disabled)').forEach(function(cb) {
-            if (cb.dataset.appid) ids.push(String(cb.dataset.appid));
+        var add = [];
+        var remove = [];
+        document.querySelectorAll('#gd-dlc .gd-dlc-cb').forEach(function(cb) {
+            if (!cb.dataset.appid) return;
+            var id = String(cb.dataset.appid);
+            var was = cb.dataset.active === '1';
+            if (cb.checked && !was) add.push(id);
+            if (!cb.checked && was) remove.push(id);
         });
-        if (!ids.length) {
-            if (window.Components) Components.showToast('warning', 'Select at least one DLC to activate.');
+        if (!add.length && !remove.length) {
+            if (window.Components) Components.showToast('warning', 'Change the DLC checkboxes first.');
             return;
         }
-        if (window.Components) Components.showToast('info', 'Activating ' + ids.length + ' DLC(s) on Steam…');
-        Bridge.call('activate_dlcs', _appId, JSON.stringify(ids));
+        if (window.Components) {
+            Components.showToast('info', 'Updating ' + (add.length + remove.length) + ' DLC(s) on Steam…');
+        }
+        Bridge.call('activate_dlcs', _appId, JSON.stringify({ add: add, remove: remove }));
     }
 
     function _crackBuildNote(data) {
@@ -371,6 +394,8 @@ window.GameDetails = (function() {
                 earlyHeader.alt = shownName;
                 earlyHeader.src = data.header_image;
             }
+            var earlyPage = document.querySelector('#game-details .gd-steam-page');
+            if (earlyPage) earlyPage.classList.remove('is-loading');
             return;
         }
         var page = document.querySelector('#game-details .gd-steam-page');

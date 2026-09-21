@@ -416,6 +416,25 @@ window.Bridge = (function() {
             get_catalog_status: function(cb) { if (cb) cb('{"loaded":true,"stale":true,"count":4,"age_seconds":400000}'); },
             get_kraken_favorites: function(cb) { if (cb) cb('[]'); },
             get_kraken_recent: function(cb) { if (cb) cb('[]'); },
+            suggest_store_games: function(query, cb) {
+                var q = String(query || '').toLowerCase();
+                var hits = _simCatalog().filter(function(g) {
+                    return !q || g.name.toLowerCase().indexOf(q) !== -1 || String(g.app_id) === q;
+                }).slice(0, 8).map(function(g) {
+                    return { app_id: g.app_id, name: g.name };
+                });
+                if (cb) cb(JSON.stringify(hits));
+            },
+            get_app_summaries: function(idsJson, cb) {
+                var ids = [];
+                try { ids = JSON.parse(idsJson || '[]'); } catch (e) { ids = []; }
+                var cat = _simCatalog();
+                var rows = (ids || []).map(function(id) {
+                    var g = cat.filter(function(x) { return String(x.app_id) === String(id); })[0];
+                    return { app_id: id, name: g ? g.name : ('App ' + id) };
+                });
+                if (cb) cb(JSON.stringify(rows));
+            },
             get_whats_new_seen: function(cb) { if (cb) cb(true); },
             set_whats_new_seen: function() {},
             add_kraken_recent: function() {},

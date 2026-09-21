@@ -108,7 +108,7 @@
         body.innerHTML =
             '<table class="dlc-check-table">' +
             '<thead><tr>' +
-            '<th><input type="checkbox" id="dlc-check-all" checked title="Toggle all"></th>' +
+            '<th><input type="checkbox" id="dlc-check-all" title="Toggle all"></th>' +
             '<th>Status</th><th>App ID</th><th>Name</th><th>Type</th>' +
             '</tr></thead>' +
             '<tbody>' + rows + '</tbody>' +

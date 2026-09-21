@@ -60,6 +60,29 @@ def _existing_addappid_ids(text: str) -> set:
     return out
 
 
+def keep_parent_addappids(text: str, parent_id) -> str:
+    """Keep addappid lines for the parent game; drop extra DLC app IDs.
+
+    Depot keys, setManifestid, and other lua remain untouched. DLC is
+    added later when the user activates selected IDs in the store UI.
+    """
+    try:
+        parent = int(parent_id)
+    except (TypeError, ValueError):
+        return text or ""
+    lines = []
+    for line in str(text or "").splitlines(keepends=True):
+        match = re.match(r"^\s*addappid\s*\(\s*(\d+)", line, re.IGNORECASE)
+        if match:
+            try:
+                if int(match.group(1)) != parent:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        lines.append(line)
+    return "".join(lines)
+
+
 def _compute_depotless_set(provider: SteamInfoProvider, parent_appid: int) -> set:
     # Returns set() on every failure path. The wrapping helper treats an
     # empty set as "nothing to append" so an appinfo blip leaves the .lua
@@ -134,54 +157,50 @@ def append_depotless_dlcs(
     *,
     provider: Optional[SteamInfoProvider] = None,
 ) -> int:
-    """Best-effort post-save enrichment for a saved <parent>.lua file.
+    """DLC is unlocked from the store checkbox list, not auto-appended."""
+    return 0
 
-    Walks the parent's appinfo via SteamInfoProvider, computes the
-    NOT_DEPOT DLC subset, and appends `addappid(<dlc_appid>)` lines for
-    every DLC in that subset that is not already declared in the file.
 
-    Returns the number of lines appended (0 on any failure path).
-    Never raises. Callers treat the return as advisory only and never
-    use it to gate the wrapping download success.
-    """
+def remove_appids(lua_path: Path, appids, parent_id) -> int:
+    """Drop addappid lines for the given DLC ids. The parent line stays."""
     try:
-        parent_id = int(parent_appid)
-    except (TypeError, ValueError):
-        logger.debug("dlc_appid_enricher: bad parent_appid %r", parent_appid)
+        path = lua_path if isinstance(lua_path, Path) else Path(lua_path)
+        parent = int(parent_id)
+    except (TypeError, ValueError, OSError):
         return 0
-
-    if not isinstance(lua_path, Path):
+    drop = set()
+    for raw in appids or []:
         try:
-            lua_path = Path(lua_path)
-        except Exception:
-            return 0
-
-    if not lua_path.exists():
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value != parent:
+            drop.add(value)
+    if not drop or not path.is_file():
         return 0
-
     try:
-        if provider is None:
-            provider = create_provider_for_current_thread()
-    except Exception as e:
-        logger.debug("dlc_appid_enricher: provider construction failed: %s", e)
+        original = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return 0
-
-    depotless = _compute_depotless_set(provider, parent_id)
-    if not depotless:
+    kept = []
+    removed = 0
+    for line in original.splitlines(keepends=True):
+        match = re.match(r"^\s*addappid\s*\(\s*(\d+)", line, re.IGNORECASE)
+        if match:
+            try:
+                if int(match.group(1)) in drop:
+                    removed += 1
+                    continue
+            except (TypeError, ValueError):
+                pass
+        kept.append(line)
+    if not removed:
         return 0
-
     try:
-        text = lua_path.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:
-        logger.debug("dlc_appid_enricher: read %s failed: %s", lua_path, e)
+        path.write_text("".join(kept), encoding="utf-8")
+    except OSError:
         return 0
-
-    existing = _existing_addappid_ids(text)
-    missing = sorted(d for d in depotless if d not in existing and d != parent_id)
-    if not missing:
-        return 0
-
-    return _append_lines(lua_path, missing)
+    return removed
 
 
 def append_appids(lua_path: Path, appids) -> int:

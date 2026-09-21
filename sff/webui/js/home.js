@@ -87,10 +87,15 @@ window.Home = (function() {
     function _idsToShelf(title, json) {
         var ids = [];
         try { ids = JSON.parse(json || '[]'); } catch (e) {}
-        var games = (ids || []).map(function(id) {
-            return { app_id: id, name: 'App ' + id };
+        if (!ids || !ids.length) return;
+        Bridge.callWithCallback('get_app_summaries', JSON.stringify(ids), function(raw) {
+            var games = [];
+            try { games = JSON.parse(raw || '[]'); } catch (e) {}
+            if (!games.length) {
+                games = ids.map(function(id) { return { app_id: id, name: 'App ' + id }; });
+            }
+            _renderShelf(title, games);
         });
-        _renderShelf(title, games);
     }
 
     function _renderShelf(title, games) {
@@ -104,7 +109,7 @@ window.Home = (function() {
         wrap.innerHTML = '<h3>' + title + '</h3>';
         var row = document.createElement('div');
         row.className = 'home-shelf-row';
-        games.forEach(function(g) {
+        games.forEach(function(g, index) {
             var id = String(g.app_id || g.appid || '');
             if (!id) return;
             var card = document.createElement('div');
@@ -114,8 +119,30 @@ window.Home = (function() {
             card.querySelector('span').textContent = g.name || ('App ' + id);
             var img = card.querySelector('img');
             img.alt = g.name || '';
-            img.loading = 'lazy';
-            img.src = _cover(id);
+            img.loading = index < 8 ? 'eager' : 'lazy';
+            img.referrerPolicy = 'no-referrer';
+            var urls = [];
+            [g.image_url, g.header_image, g.capsule_url].forEach(function(url) {
+                if (url && urls.indexOf(url) === -1) urls.push(url);
+            });
+            [
+                'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/header.jpg',
+                'https://cdn.cloudflare.steamstatic.com/steam/apps/' + id + '/header.jpg',
+                'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/library_600x900.jpg',
+                'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/capsule_616x353.jpg'
+            ].forEach(function(url) {
+                if (urls.indexOf(url) === -1) urls.push(url);
+            });
+            if (window.Components && Components.bindCover) {
+                Components.bindCover(img, id, {
+                    alt: g.name || '',
+                    placeholder: false,
+                    loading: img.loading,
+                    urls: urls
+                });
+            } else {
+                img.src = urls[0] || _cover(id);
+            }
             card.addEventListener('click', function() { GameDetails.show(id, g.name); });
             card.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') GameDetails.show(id, g.name);
@@ -146,7 +173,7 @@ window.Home = (function() {
             var id = String(g.app_id || '');
             var slide = document.createElement('div');
             slide.className = 'home-hero-slide' + (i === 0 ? ' active' : '');
-            slide.style.backgroundImage = 'url("' + _heroUrl(id) + '")';
+            slide.style.backgroundImage = 'url("' + _heroUrl(id) + '"), url("https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/header.jpg")';
             var copy = document.createElement('div');
             copy.className = 'home-hero-copy';
             var meta = [];

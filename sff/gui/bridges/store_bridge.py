@@ -1900,14 +1900,14 @@ def _bridge_suggest_store_games(bridge, query):
     if not q:
         return json.dumps([])
     try:
-        from sff.game_list_fallback import get_app_name, search_games_json, search_name_fallback
+        from sff.game_list_fallback import get_app_name, suggest_titles
     except Exception:
         return json.dumps([])
 
     rows = []
     seen = set()
 
-    def _add(app_id, name):
+    def _add(app_id, name, capsule=""):
         try:
             aid = int(app_id)
         except (TypeError, ValueError):
@@ -1916,24 +1916,25 @@ def _bridge_suggest_store_games(bridge, query):
             return
         label = str(name or "").strip() or get_app_name(aid) or f"App {aid}"
         seen.add(aid)
-        rows.append({"app_id": aid, "name": label})
+        rows.append({
+            "app_id": aid,
+            "name": label,
+            "capsule_url": capsule or (
+                "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/"
+                f"{aid}/capsule_184x69.jpg"
+            ),
+        })
 
     if q.isdigit():
         _add(q, get_app_name(q))
 
     queries = _alias_expanded_queries(q) or [q]
-    candidates = []
-    for alt in queries[:4]:
-        try:
-            candidates.extend(search_games_json(alt, limit=40) or [])
-        except Exception:
-            pass
-        try:
-            candidates.extend(search_name_fallback(alt, limit=40) or [])
-        except Exception:
-            pass
+    try:
+        hits = suggest_titles(queries[:4], limit=8) or []
+    except Exception:
+        hits = []
     scored = []
-    for game in candidates:
+    for game in hits:
         aid = game.get("app_id")
         name = game.get("name") or ""
         if not aid or int(aid) in seen:
@@ -1944,18 +1945,9 @@ def _bridge_suggest_store_games(bridge, query):
         scored.append((score, game))
     scored.sort(key=lambda item: item[0])
     for _score, game in scored:
-        _add(game.get("app_id"), game.get("name"))
+        _add(game.get("app_id"), game.get("name"), game.get("capsule_url") or "")
         if len(rows) >= 8:
             break
-
-    if len(rows) < 8:
-        cache = getattr(bridge, "_allgames_cache", None) or []
-        q_norm = _normalize_for_search(q)
-        for name, appid in cache:
-            if len(rows) >= 8:
-                break
-            if _matches_normalized(q_norm, _normalize_for_search(name)):
-                _add(appid, name)
     return json.dumps(rows[:8])
 
 
@@ -1987,7 +1979,7 @@ def _json_id_list(raw, limit=40):
         return []
 
 
-def _bridge_get_store_game_details(bridge, app_id):
+def _bridge_get_store_game_details(bridge, app_id, language=""):
     """Fetch Steam Store catalog details + latest public build. Async."""
     app_id = str(app_id or "").strip()
     if not app_id.isdigit():
@@ -2012,17 +2004,26 @@ def _bridge_get_store_game_details(bridge, app_id):
             header_image=header,
         )
 
-        lang_code = get_setting(Settings.LANGUAGE) or "en"
+        lang_code = str(language or "").strip() or get_setting(Settings.LANGUAGE) or "en"
         steam_lang = steam_api_language(lang_code)
         cache = get_cache()
-        cache_key = f"store_details_v4_{steam_lang}_{app_id}"
+        cache_key = f"store_details_v5_{steam_lang}_{app_id}"
         details = cache.get(cache_key)
         if not isinstance(details, dict):
             fetched = get_app_details_from_store(
                 app_id, include_page_media=False, language=steam_lang
             )
             details = fetched if isinstance(fetched, dict) else {}
-            if details and not (details.get("movies") or details.get("trailer_urls")):
+
+            def _has_playable_trailer(payload):
+                for movie in (payload or {}).get("movies") or []:
+                    for url in movie.get("urls") or []:
+                        lower = str(url).lower()
+                        if lower.endswith(".mp4") or lower.endswith(".webm") or ".mp4?" in lower:
+                            return True
+                return False
+
+            if details and not _has_playable_trailer(details):
                 try:
                     fetched = get_app_details_from_store(
                         app_id, include_page_media=True, language=steam_lang

@@ -94,6 +94,7 @@ window.Downloads = (function() {
             timestamp: Date.now()
         };
         _render();
+        _updateLive(data);
     }
 
     function _completeDownload(data) {
@@ -114,6 +115,11 @@ window.Downloads = (function() {
         }
         _trimHistory();
         _render();
+        _updateLive({
+            app_id: id,
+            status: data.success ? 'Completed' : (data.message || 'Failed'),
+            progress: data.success ? 100 : 0
+        });
     }
 
     function _render() {
@@ -190,10 +196,74 @@ window.Downloads = (function() {
         if (emptyEl) emptyEl.classList.toggle('hidden', items.length > 0);
         if (pauseBtn) pauseBtn.disabled = !!(_queueState && _queueState.paused);
         if (resumeBtn) resumeBtn.disabled = !(_queueState && _queueState.paused);
+        _renderLiveQueue();
+    }
+
+    function showLive() {
+        init();
+        var panel = document.getElementById('dl-live');
+        if (panel) panel.classList.remove('hidden');
+        var modal = document.getElementById('download-modal');
+        if (modal) modal.classList.remove('hidden', 'modal-hiding');
+        _renderLiveQueue();
+    }
+
+    function _appendLiveLog(text) {
+        var log = document.getElementById('dl-live-log');
+        if (!log || !text) return;
+        log.textContent += String(text).replace(/\s+$/, '') + '\n';
+        log.scrollTop = log.scrollHeight;
+        var lines = log.textContent.split('\n');
+        if (lines.length > 80) {
+            log.textContent = lines.slice(-80).join('\n');
+        }
+    }
+
+    function _updateLive(data) {
+        var panel = document.getElementById('dl-live');
+        var modal = document.getElementById('download-modal');
+        if (!panel) return;
+        if (modal && !modal.classList.contains('hidden')) panel.classList.remove('hidden');
+        if (panel.classList.contains('hidden')) return;
+        var status = document.getElementById('dl-live-status');
+        var fill = document.getElementById('dl-live-fill');
+        var pct = Math.max(0, Math.min(100, Number(data.progress) || 0));
+        if (status) status.textContent = (data.status || 'Working') + '  (' + Math.round(pct) + '%)';
+        if (fill) fill.style.width = pct + '%';
+        if (data.status) _appendLiveLog(data.status);
+    }
+
+    function _renderLiveQueue() {
+        var host = document.getElementById('dl-live-queue');
+        if (!host) return;
+        var items = (_queueState && _queueState.items) || [];
+        if (!items.length) {
+            host.innerHTML = '';
+            return;
+        }
+        host.innerHTML = items.map(function(item) {
+            var dl = _downloads[String(item.app_id)];
+            var progress = dl && typeof dl.progress === 'number' ? dl.progress : 0;
+            return '<div class="dl-live-queue-row"><span>' +
+                Components.escapeHtml(item.name || ('App ' + item.app_id)) +
+                '</span><span>' + Components.escapeHtml(item.state || '') +
+                ' · ' + Math.round(progress) + '%</span></div>';
+        }).join('');
+    }
+
+    function appendLog(text) {
+        init();
+        var modal = document.getElementById('download-modal');
+        if (!modal || modal.classList.contains('hidden')) return;
+        var panel = document.getElementById('dl-live');
+        if (panel) panel.classList.remove('hidden');
+        _appendLiveLog(text);
     }
 
     return {
         init: init,
-        onPageEnter: onPageEnter
+        onPageEnter: onPageEnter,
+        showLive: showLive,
+        appendLog: appendLog
     };
 })();

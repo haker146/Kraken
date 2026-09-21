@@ -77,6 +77,7 @@ window.App = (function() {
         if (window.DlcCheck) DlcCheck.init();
         if (window.Home && Home.init) Home.init();
         if (window.GameDetails && GameDetails.init) GameDetails.init();
+        if (window.Downloads && Downloads.init) Downloads.init();
         _initSteamStatusChip();
         _initGameCardDetails();
         _initToolsGenerators();
@@ -309,6 +310,7 @@ window.App = (function() {
                     var line = lines[i];
                     if (line.length === 0) continue;
                     _appendLog(line);
+                    if (window.Downloads && Downloads.appendLog) Downloads.appendLog(line);
                     if (updateHomeLog) {
                         _appendHomeLog(line);
                     }
@@ -347,6 +349,15 @@ window.App = (function() {
     }
 
     function navigateTo(pageId) {
+        if (pageId === 'downloads') {
+            if (window.Components) Components.showModal('download-modal');
+            if (window.Downloads && Downloads.showLive) Downloads.showLive();
+            if (_currentPage && _currentPage !== 'downloads') return;
+            pageId = 'home';
+        }
+        if (window.GameDetails && GameDetails.isOpen && GameDetails.isOpen() && GameDetails.hide) {
+            GameDetails.hide();
+        }
         if (_currentPage && _currentPage !== pageId) {
             var oldModule = _getPageModule(_currentPage);
             if (oldModule && typeof oldModule.onPageLeave === 'function') {
@@ -835,7 +846,7 @@ window.App = (function() {
                     var ftSel = document.getElementById('ryuu-file-type');
                     if (ftSel) fileType = ftSel.value || 'zip';
                 }
-                Components.hideModal('download-modal');
+                if (window.Downloads && Downloads.showLive) Downloads.showLive();
                 if (source === 'local') {
                     var luaPath = (document.getElementById('dl-local-lua-path') || {}).value || '';
                     if (!luaPath) {
@@ -1044,7 +1055,7 @@ window.App = (function() {
                 var targetOs = (document.getElementById('dl-target-os') || {}).value || '';
 
                 function doDownload(dest) {
-                    Components.hideModal('download-modal');
+                    if (window.Downloads && Downloads.showLive) Downloads.showLive();
                     _startDdmodDownload(appId, source, luaPath, manifestFolder, targetOs, dest);
                 }
 
@@ -1668,6 +1679,7 @@ window.App = (function() {
             return;
         }
         Components.showToast('info', 'Starting download for App ' + appId + '...');
+        if (window.Downloads && Downloads.showLive) Downloads.showLive();
         if (mode === 'fastest') {
             var src = source || 'hubcap';
             Bridge.call('download_game_with_source', appId, src, requestUpdate || '0');

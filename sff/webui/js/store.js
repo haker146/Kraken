@@ -249,6 +249,8 @@ window.Store = (function() {
                 var source = sourceEl ? sourceEl.value : 'oureveryday';
                 Bridge.call('download_queue_enqueue', JSON.stringify(entries), source);
                 Components.showToast('info', 'Adding ' + entries.length + ' game(s) to the download queue...');
+                if (window.Components) Components.showModal('download-modal');
+                if (window.Downloads && Downloads.showLive) Downloads.showLive();
                 _selection = {};
                 _selectMode = false;
                 selectModeBtn.classList.remove('active');
@@ -418,9 +420,23 @@ window.Store = (function() {
             if (!_active) return;
             var current = document.getElementById('store-search');
             if (!current || String(current.value || '').trim() !== q) return;
-            var requestId = 'store-suggest-' + (++_suggestSeq);
-            Bridge.call('search_games', q, 0, 8, 'name_asc', '', requestId);
-        }, 140);
+            var seq = ++_suggestSeq;
+            Bridge.callWithCallback('suggest_store_games', q, function(raw) {
+                if (seq !== _suggestSeq) return;
+                var hints = [];
+                try { hints = JSON.parse(raw || '[]'); } catch (e) { hints = []; }
+                hints = (hints || []).map(function(g) {
+                    return {
+                        app_id: g.app_id || g.appid,
+                        name: g.name || ''
+                    };
+                });
+                if (_blockNsfw) {
+                    hints = hints.filter(function(g) { return !_looksNsfwByName(g); });
+                }
+                _renderSuggest(hints);
+            });
+        }, 80);
     }
 
     function _hideSuggest() {
@@ -472,15 +488,13 @@ window.Store = (function() {
         }
         var html = '<div class="store-suggest-label">Search results</div>';
         _suggestGames.forEach(function(game, index) {
-            var cap = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' +
-                game.app_id + '/capsule_184x69.jpg';
             var status = game.crack_status
                 ? '<span class="steam-status-box"><span class="steam-discount">' +
                     Components.escapeHtml(String(game.crack_status)) + '</span></span>'
                 : '';
             html += '<button type="button" class="store-suggest-item' + (index === 0 ? ' is-active' : '') +
                 '" data-index="' + index + '" role="option">' +
-                '<span class="store-suggest-cap"><img alt="" src="' + cap + '"></span>' +
+                '<span class="store-suggest-cap"><img alt=""></span>' +
                 '<span class="store-suggest-name">' + Components.escapeHtml(game.name || '') + '</span>' +
                 (status ? '<span class="store-suggest-meta">' + status + '</span>' : '') +
                 '</button>';
@@ -488,9 +502,29 @@ window.Store = (function() {
         box.innerHTML = html;
         box.classList.remove('hidden');
         box.querySelectorAll('.store-suggest-item').forEach(function(el) {
+            var i = parseInt(el.getAttribute('data-index'), 10);
+            var game = _suggestGames[i];
+            var img = el.querySelector('img');
+            if (img && game && game.app_id) {
+                var cap = game.capsule_url ||
+                    ('https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' +
+                        game.app_id + '/capsule_184x69.jpg');
+                var header = 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + game.app_id + '/header.jpg';
+                img.referrerPolicy = 'no-referrer';
+                img.decoding = 'async';
+                img.alt = '';
+                img.onerror = function() {
+                    if (img.dataset.fallback === '1') {
+                        img.onerror = null;
+                        return;
+                    }
+                    img.dataset.fallback = '1';
+                    img.src = header;
+                };
+                img.src = cap;
+            }
             el.addEventListener('mousedown', function(e) {
                 e.preventDefault();
-                var i = parseInt(el.getAttribute('data-index'), 10);
                 _openSuggest(_suggestGames[i]);
             });
         });

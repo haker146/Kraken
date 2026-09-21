@@ -419,10 +419,7 @@ def _bridge_dlc_check_get_list(bridge, app_id):
                 own_depots = dlc_depot_map.get(did) or set()
                 if own_depots and (own_depots & depotcache_ids):
                     in_depotcache = True
-            in_applist = (
-                in_local or in_lua or in_acf or in_keymap
-                or in_reg or in_depotcache
-            )
+            in_applist = in_local or in_lua
             if in_applist:
                 owned += 1
             is_depot = did in depot_id_set
@@ -466,6 +463,11 @@ def _bridge_activate_dlcs(bridge, app_id, dlc_ids_json):
             raw = json.loads(dlc_ids_json) if isinstance(dlc_ids_json, str) else (dlc_ids_json or [])
         except Exception:
             raw = []
+        remove_ids = []
+        if isinstance(raw, dict):
+            add_raw = raw.get("add") or []
+            remove_ids = raw.get("remove") or []
+            raw = add_raw
         ids = []
         seen = set()
         for item in raw:
@@ -476,35 +478,60 @@ def _bridge_activate_dlcs(bridge, app_id, dlc_ids_json):
             if value > 0 and value not in seen:
                 seen.add(value)
                 ids.append(value)
-        if not ids:
-            raise ValueError("No DLC selected")
+        drop = []
+        drop_seen = set()
+        for item in remove_ids:
+            try:
+                value = int(item)
+            except (TypeError, ValueError):
+                continue
+            if value > 0 and value not in drop_seen and value not in seen:
+                drop_seen.add(value)
+                drop.append(value)
+        if not ids and not drop:
+            raise ValueError("No DLC selection changed")
 
         inj = None
         if bridge._ui:
             inj = getattr(bridge._ui, "app_list_man", None) or getattr(bridge._ui, "sls_man", None)
-        if inj is not None:
+        if inj is not None and ids:
             inj.add_ids(ids, skip_check=True)
 
         lua_added = 0
+        lua_removed = 0
         if bridge._steam_path:
-            from sff.lua.dlc_appid_enricher import append_appids
+            from sff.lua.dlc_appid_enricher import append_appids, remove_appids
             lua_path = Path(bridge._steam_path) / "config" / "stplug-in" / f"{parent}.lua"
             if lua_path.is_file():
-                lua_added = append_appids(lua_path, ids)
+                if ids:
+                    lua_added = append_appids(lua_path, ids)
+                if drop:
+                    lua_removed = remove_appids(lua_path, drop, parent)
+            plug = Path(bridge._steam_path) / "config" / "stplug-in"
+            for did in drop:
+                stub = plug / f"{did}.lua"
+                try:
+                    if stub.is_file() and stub.read_text(encoding="utf-8", errors="replace").strip() == f"addappid({did})":
+                        stub.unlink()
+                        lua_removed += 1
+                except OSError:
+                    pass
 
         return {
             "app_id": parent,
             "activated": len(ids),
+            "removed": lua_removed,
             "lua_added": lua_added,
             "ids": [str(i) for i in ids],
         }
 
     def _ok(payload):
         n = (payload or {}).get("activated") or 0
+        removed = (payload or {}).get("removed") or 0
         bridge._emit_task_result(
             "activate_dlcs",
             True,
-            f"Activated {n} DLC(s) on Steam. Restart Steam if they are not visible yet.",
+            f"Updated DLC on Steam ({n} added, {removed} removed). Restart Steam if the list does not refresh.",
             **(payload or {"app_id": parent}),
         )
 
@@ -2479,18 +2506,18 @@ def _bridge__scan_installed_games(bridge):
                             installdir = line.split('"')[-2] if '"' in line else ""
                     if not app_id or app_id in seen:
                         continue
-                    if installdir:
-                        game_path = steamapps / "common" / installdir
-                        if not game_path.exists():
-                            skipped_missing_dir += 1
-                            continue
+                    game_path = steamapps / "common" / installdir if installdir else None
+                    files_on_disk = bool(game_path and game_path.exists())
+                    if installdir and not files_on_disk:
+                        skipped_missing_dir += 1
                     seen.add(app_id)
                     managed = managed_sources.get(app_id) or []
                     games.append({
                         "app_id": int(app_id) if app_id.isdigit() else 0,
                         "name": name or f"App {app_id}",
-                        "installed": True,
-                        "path": str(steamapps / "common" / installdir) if installdir else "",
+                        "installed": files_on_disk,
+                        "manifest_only": not files_on_disk,
+                        "path": str(game_path) if game_path else "",
                         "steamidra_managed": bool(managed),
                         "steamidra_source": ",".join(sorted(managed)),
                     })
@@ -2499,12 +2526,29 @@ def _bridge__scan_installed_games(bridge):
                     continue
         except OSError:
             continue
+    try:
+        from sff.game_list_fallback import get_app_name
+    except Exception:
+        get_app_name = lambda _aid: ""
+    for app_id, sources in (managed_sources or {}).items():
+        if not app_id or app_id in seen:
+            continue
+        seen.add(app_id)
+        name = get_app_name(app_id) or f"App {app_id}"
+        games.append({
+            "app_id": int(app_id) if str(app_id).isdigit() else 0,
+            "name": name,
+            "installed": False,
+            "manifest_only": True,
+            "path": "",
+            "steamidra_managed": True,
+            "steamidra_source": ",".join(sorted(sources or [])),
+        })
     games.sort(key=lambda g: g.get("name", "").lower())
     if skipped_missing_dir:
         logger.info(
-            "_scan_installed_games: %d game(s) skipped because their install folder "
-            "is missing on disk (ACF present, <lib>/steamapps/common/<installdir> gone). "
-            "Hit Refresh after restoring the folder.",
+            "_scan_installed_games: %d game(s) have an ACF/lua but no install folder "
+            "(shown in Library as manifest-only so they can be removed).",
             skipped_missing_dir)
     return json.dumps(games)
 

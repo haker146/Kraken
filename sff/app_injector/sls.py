@@ -87,35 +87,9 @@ class SLSManager(AppInjectionManager):
         if isinstance(data, int):
             data = [data]
         elif isinstance(data, LuaParsedInfo):
-            ids = [int(data.app_id)]
-            # Also add DLC app IDs from the lua so they show in Steam properties
-            try:
-                from sff.network.steam_client import create_provider_for_current_thread
-                provider = create_provider_for_current_thread()
-                app_info = provider.get_single_app_info(int(data.app_id), quick=True)
-                depots = app_info.get("depots", {})
-                if isinstance(depots, dict):
-                    for depot_id, depot_meta in depots.items():
-                        if not isinstance(depot_meta, dict):
-                            continue
-                        dlcappid = depot_meta.get("dlcappid")
-                        if dlcappid:
-                            dlc_id = int(dlcappid)
-                            if dlc_id not in ids:
-                                ids.append(dlc_id)
-                            # Register DLC relationship in DlcData
-                            dlc_name = ""
-                            try:
-                                dlc_info = provider.get_single_app_info(dlc_id)
-                                dlc_name = (dlc_info.get("common") or {}).get("name", "")
-                            except Exception:
-                                pass
-                            if not dlc_name:
-                                dlc_name = depot_meta.get("name", "") or (app_info.get("common") or {}).get("name", "")
-                            add_dlc_data(self.sls_config_path, str(data.app_id), str(dlc_id), dlc_name)
-            except Exception as e:
-                logger.debug("add_ids: DLC lookup failed for %s: %s", data.app_id, e)
-            data = ids
+            # Only the base game is registered here. DLC app IDs are added
+            # when the user checks them in the store page.
+            data = [int(data.app_id)]
         changes = 0
         for new_app_id in data:
             added = add_additional_app(self.sls_config_path, str(new_app_id))

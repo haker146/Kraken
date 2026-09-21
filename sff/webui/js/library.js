@@ -52,6 +52,9 @@ window.Library = (function() {
                 if (data.task === 'library_loaded' && Array.isArray(data.games)) {
                     _renderLibrary(data.games);
                 }
+                if (data.task && String(data.task).indexOf('download') === 0 && data.success) {
+                    _refreshLibrary(true);
+                }
                 if (data.task === 'delete_game') {
                     if (data.success) {
                         var removedId = data.app_id || (window._lastDeletedAppId || '');
@@ -298,7 +301,8 @@ window.Library = (function() {
     }
 
     function _createLibraryCard(game, index) {
-        game.installed = true;
+        var filesOnDisk = !!game.installed && !game.manifest_only;
+        game.installed = filesOnDisk;
         var card = Components.createGameCard(game, { index: index, forceShowImage: true });
         var safeName = (game.name || '').replace(/"/g, '&quot;');
         var safePath = (game.path || '').replace(/"/g, '&quot;');
@@ -315,9 +319,17 @@ window.Library = (function() {
         if (game.steamidra_managed) {
             var badge = document.createElement('div');
             badge.className = 'steamidra-managed-badge';
-            badge.textContent = 'SM';
-            badge.title = 'Added with Kraken';
+            badge.textContent = game.manifest_only ? 'Manifest' : 'SM';
+            badge.title = game.manifest_only
+                ? 'Manifest installed — files not on disk. You can still remove it from Steam.'
+                : 'Added with Kraken';
             card.appendChild(badge);
+        } else if (game.manifest_only) {
+            var only = document.createElement('div');
+            only.className = 'steamidra-managed-badge';
+            only.textContent = 'Manifest';
+            only.title = 'Manifest installed — files not on disk. You can still remove it from Steam.';
+            card.appendChild(only);
         }
         _attachUpdateBadge(card, game.app_id);
         return card;

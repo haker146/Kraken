@@ -590,6 +590,8 @@ class WebBridge(QObject):
     def _emit_task_result(self, task_name, success, message="", **extra):
         data = {"task": task_name, "success": success, "message": message}
         data.update(extra)
+        if success and str(task_name).startswith("download"):
+            self._installed_games_cache = None
         self.task_finished.emit(json.dumps(data))
         # Download queue bookkeeping: downloads started by the queue
         # advance the FIFO when they finish (or fail).
@@ -775,8 +777,9 @@ class WebBridge(QObject):
     def search_games(self, query, offset, per_page, sort_by='updated', tag='', request_id=''):
         return _bridge_search_games(self, query, offset, per_page, sort_by, tag, request_id)
     @pyqtSlot(str)
-    def get_store_game_details(self, app_id):
-        return _bridge_get_store_game_details(self, app_id)
+    @pyqtSlot(str, str)
+    def get_store_game_details(self, app_id, language=""):
+        return _bridge_get_store_game_details(self, app_id, language)
     @pyqtSlot(str, result=str)
     def suggest_store_games(self, query):
         return _bridge_suggest_store_games(self, query)

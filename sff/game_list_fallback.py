@@ -478,6 +478,67 @@ def _normalize(text: str) -> str:
     return " ".join("".join(chars).split())
 
 
+_SUGGEST_INDEX = None
+_SUGGEST_STOP = {"the", "and", "for", "of", "a", "an", "to", "in", "on"}
+
+
+def _ensure_suggest_index():
+    global _SUGGEST_INDEX
+    ensure_loaded()
+    if _SUGGEST_INDEX is not None:
+        return _SUGGEST_INDEX
+    index = {}
+    for appid, name in (_name_cache or {}).items():
+        if not name or not str(appid).isdigit():
+            continue
+        aid = int(appid)
+        for tok in set(_normalized_tokens(name)):
+            if len(tok) < 2 or tok in _SUGGEST_STOP:
+                continue
+            bucket = index.get(tok)
+            if bucket is None:
+                bucket = []
+                index[tok] = bucket
+            if len(bucket) < 400:
+                bucket.append((aid, name))
+    _SUGGEST_INDEX = index
+    return index
+
+
+def suggest_titles(queries, limit=8):
+    """Return a small title list from the local name index. No network."""
+    index = _ensure_suggest_index()
+    if not index:
+        return []
+    found = []
+    seen = set()
+    for raw in queries or []:
+        tokens = [t for t in _normalized_tokens(str(raw or "")) if len(t) >= 2 and t not in _SUGGEST_STOP]
+        if not tokens:
+            continue
+        buckets = [index.get(tok) or [] for tok in tokens]
+        buckets.sort(key=len)
+        base = buckets[0]
+        for aid, name in base:
+            if aid in seen or len(found) >= limit:
+                continue
+            folded = _normalize(name)
+            words = set(folded.split())
+            if all(tok in words or tok in folded for tok in tokens):
+                seen.add(aid)
+                found.append({
+                    "app_id": aid,
+                    "name": name,
+                    "capsule_url": (
+                        "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/"
+                        f"{aid}/capsule_184x69.jpg"
+                    ),
+                })
+        if len(found) >= limit:
+            break
+    return found[:limit]
+
+
 def search_name_fallback(query: str, limit=500):
     ensure_loaded()
     if not _name_cache:

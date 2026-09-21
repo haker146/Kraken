@@ -22,7 +22,7 @@ window.Components = (function() {
     var _COVER_CACHE_MAX = 160;
     var _coverCache = null;
     var _COVER_POOL = [];
-    var _COVER_POOL_MAX = 6;
+    var _COVER_POOL_MAX = 12;
     var _coverInflight = 0;
     var _coverWait = [];
 
@@ -139,6 +139,7 @@ window.Components = (function() {
         if (cached) urls.unshift(cached);
         scheduleCoverLoad(function(done) {
             var urlIdx = 0;
+            var token = 0;
             var finished = false;
             function finish() {
                 if (finished) return;
@@ -146,24 +147,40 @@ window.Components = (function() {
                 done();
             }
             function tryNext() {
-                urlIdx++;
-                if (urlIdx < urls.length) {
-                    img.onerror = tryNext;
-                    img.src = urls[urlIdx];
-                } else {
+                if (finished) return;
+                var my = ++token;
+                if (urlIdx >= urls.length) {
                     img.onerror = null;
+                    img.onload = null;
                     if (wrap && options.placeholder !== false) {
                         wrap.innerHTML = '<div class="game-card-img-placeholder">' + NO_IMAGE_SVG + '</div>';
                     }
                     finish();
+                    return;
                 }
+                var url = urls[urlIdx++];
+                var timer = setTimeout(function() {
+                    if (my !== token) return;
+                    tryNext();
+                }, 3500);
+                img.onload = function() {
+                    if (my !== token) return;
+                    clearTimeout(timer);
+                    if ((img.naturalWidth || 0) < 8) {
+                        tryNext();
+                        return;
+                    }
+                    _saveCoverCache(appId, img.currentSrc || img.src);
+                    finish();
+                };
+                img.onerror = function() {
+                    if (my !== token) return;
+                    clearTimeout(timer);
+                    tryNext();
+                };
+                img.src = url;
             }
-            img.onload = function() {
-                _saveCoverCache(appId, img.src);
-                finish();
-            };
-            img.onerror = tryNext;
-            img.src = urls[0];
+            tryNext();
         });
     }
 
@@ -478,6 +495,8 @@ window.Components = (function() {
     function showModal(modalId) {
         var modal = document.getElementById(modalId);
         if (!modal) return;
+        if (modal.parentNode !== document.body) document.body.appendChild(modal);
+        modal.style.zIndex = '5000';
         modal.classList.remove('hidden', 'modal-hiding');
     }
 

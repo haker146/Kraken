@@ -42,7 +42,13 @@ def install_lua_to_steam(steam_path, app_id, lua_source_path):
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest_file = dest_dir / f"{app_id}.lua"
-        shutil.copy2(lua_source_path, dest_file)
+        text = lua_source_path.read_text(encoding="utf-8", errors="replace")
+        try:
+            from sff.lua.dlc_appid_enricher import keep_parent_addappids
+            text = keep_parent_addappids(text, app_id)
+        except Exception:
+            logger.debug("Could not strip extra DLC addappid lines from %s", lua_source_path)
+        dest_file.write_text(text, encoding="utf-8")
         logger.info("Installed LUA to Steam config: %s", dest_file)
         return True
     except OSError as e:

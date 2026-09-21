@@ -237,7 +237,7 @@ def _movie_urls(movie: dict, app_id: str = "") -> list[str]:
     webm = movie.get("webm") if isinstance(movie.get("webm"), dict) else {}
     mp4 = movie.get("mp4") if isinstance(movie.get("mp4"), dict) else {}
     for blob in (mp4, webm):
-        for key in ("480", "max", "720", "1080"):
+        for key in ("max", "1080", "720", "480"):
             _add(blob.get(key))
     _add(movie.get("highlight_url"))
 
@@ -247,10 +247,11 @@ def _movie_urls(movie: dict, app_id: str = "") -> list[str]:
     elif app_id:
         ids.append(str(app_id))
     hosts = (
-        "https://cdn.akamai.steamstatic.com/steam/apps/{id}/{file}",
         "https://cdn.cloudflare.steamstatic.com/steam/apps/{id}/{file}",
+        "https://cdn.akamai.steamstatic.com/steam/apps/{id}/{file}",
+        "https://video.akamai.steamstatic.com/store_trailers/{id}/{file}",
     )
-    files = ("movie480.mp4", "movie_max.mp4")
+    files = ("movie_max.mp4", "movie480.mp4", "movie_max.webm", "movie480.webm")
     for mid in ids:
         for host in hosts:
             for fname in files:
@@ -384,9 +385,10 @@ _STORE_MOVIE_ID_RE = re.compile(
 )
 
 
-def _merge_store_page_media(details: dict, app_id: str) -> None:
+def _merge_store_page_media(details: dict, app_id: str, language="english") -> None:
     """Supplement API media with the public Steam store page (MP4s + shots)."""
-    url = f"https://store.steampowered.com/app/{app_id}/?l=english"
+    lang = steam_api_language(language)
+    url = f"https://store.steampowered.com/app/{app_id}/?l={lang}"
     try:
         resp = httpx.get(
             url,
@@ -468,25 +470,72 @@ def _merge_store_page_media(details: dict, app_id: str) -> None:
                 known.add(mid)
 
 
-def get_app_details_from_store(app_id, include_page_media=False):
+_STEAM_API_LANG = {
+    "en": "english",
+    "pt": "portuguese",
+    "de": "german",
+    "es": "spanish",
+    "pl": "polish",
+    "ru": "russian",
+    "ar": "arabic",
+    "zh_cn": "schinese",
+    "zh_tw": "tchinese",
+    "fr": "french",
+    "it": "italian",
+    "ja": "japanese",
+    "ko": "koreana",
+    "tr": "turkish",
+    "uk": "ukrainian",
+    "vi": "vietnamese",
+    "id": "indonesian",
+    "th": "thai",
+    "cs": "czech",
+}
+
+
+def steam_api_language(code) -> str:
+    raw = str(code or "en").strip()
+    if not raw or raw.lower() in ("auto", "none"):
+        return "english"
+    values = set(_STEAM_API_LANG.values())
+    if raw.lower() in values:
+        return raw.lower()
+    key = raw.replace("-", "_").lower()
+    if key in _STEAM_API_LANG:
+        return _STEAM_API_LANG[key]
+    if "_" in key:
+        key = key.split("_", 1)[0]
+        if key in _STEAM_API_LANG:
+            return _STEAM_API_LANG[key]
+    return "english"
+
+
+def get_app_details_from_store(app_id, include_page_media=False, language="english"):
     """
     Fetch app details from Steam Store API (no login).
     Returns dict with name, dlc ids, and catalog metadata, or None on failure.
     """
-    url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=english"
+    lang = steam_api_language(language)
+    url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l={lang}"
     data = _store_get_json(url)
     if not data or not isinstance(data, dict):
         return None
     app_data = data.get(str(app_id))
     if not app_data or not app_data.get("success") or "data" not in app_data:
+        if lang != "english":
+            return get_app_details_from_store(app_id, include_page_media=include_page_media, language="english")
         return None
     inner = app_data["data"]
     if not isinstance(inner, dict):
         return None
     parsed = _parse_store_app_data(inner)
+    about = (parsed or {}).get("about_html") or (parsed or {}).get("short_description") or ""
+    if lang != "english" and parsed and not about.strip():
+        fallback = get_app_details_from_store(app_id, include_page_media=include_page_media, language="english")
+        return fallback or parsed
     if include_page_media and parsed:
         try:
-            _merge_store_page_media(parsed, str(app_id))
+            _merge_store_page_media(parsed, str(app_id), language=lang)
         except Exception as e:
             logger.debug("Store page media merge failed for %s: %s", app_id, e)
     return parsed
