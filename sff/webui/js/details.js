@@ -207,9 +207,9 @@ window.GameDetails = (function() {
             return item && !/\.m3u8($|\?)/i.test(String(item)) && !/hls_/i.test(String(item));
         });
         _trailerUrls.sort(function(a, b) {
-            var ap = /\.mp4($|\?)/i.test(a) ? 0 : 1;
-            var bp = /\.mp4($|\?)/i.test(b) ? 0 : 1;
-            return ap - bp;
+            var aScore = (/_max\./i.test(a) ? -10 : 0) + (/\.mp4($|\?)/i.test(a) ? -1 : 0);
+            var bScore = (/_max\./i.test(b) ? -10 : 0) + (/\.mp4($|\?)/i.test(b) ? -1 : 0);
+            return aScore - bScore;
         });
         _trailerIdx = 0;
         if (kind === 'video' && _trailerUrls.length) {

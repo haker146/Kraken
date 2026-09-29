@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="css/premium.css">
     <link rel="stylesheet" href="css/playnite.css">
     <link rel="stylesheet" href="css/store-steam.css">
+    <link rel="stylesheet" href="css/game-hub.css">
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
 <body>
@@ -91,6 +92,33 @@
                 </div>
             </div>
             <div id="home-shelves" class="home-shelves"></div>
+        </section>
+
+        <section id="page-game-hub" class="page">
+            <div id="game-hub-hero" class="game-hub-hero">
+                <div class="game-hub-bg"></div>
+                <video id="game-hub-video" autoplay loop muted playsinline class="hidden"></video>
+                <div class="game-hub-gradient"></div>
+                <div class="game-hub-content">
+                    <img id="game-hub-logo" src="" alt="Game Logo" class="hidden">
+                    <h1 id="game-hub-title">Game Title</h1>
+                    <div id="game-hub-badges" class="steam-status-box"></div>
+                </div>
+            </div>
+            <div class="game-hub-body">
+                <div class="game-hub-actions">
+                    <button id="btn-hub-play" class="btn btn-primary btn-massive">Download & Play</button>
+                    <button id="btn-hub-crack" class="btn btn-secondary">Apply Offline Crack</button>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-auto-update">
+                        <span class="slider"></span> Steam Auto-Update
+                    </label>
+                </div>
+                <div class="game-hub-dlc">
+                    <h3>DLC Manager</h3>
+                    <div id="hub-dlc-list" class="dlc-list"></div>
+                </div>
+            </div>
         </section>
 
         <section id="page-tools" class="page">
