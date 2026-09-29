@@ -1,0 +1,62 @@
+{
+  "1091500": {
+    "name": "Cyberpunk 2077",
+    "drm": "Denuvo",
+    "drm_version": "Denuvo Anti-Tamper v7",
+    "cracked": true,
+    "crack_version": "2.12",
+    "crack_source": "RUNE",
+    "crack_date": "2024-01-15",
+    "crack_url": "https://github.com/haker146/kraken-db/releases/download/cp2077-v2.12/crack.zip",
+    "required_build": "9986585",
+    "notes": "Wymaga Steam Build ID 9986585. Nowsze buildy blokowane przez Denuvo v7."
+  },
+  "1245620": {
+    "name": "Elden Ring",
+    "drm": "Denuvo",
+    "drm_version": "Denuvo Anti-Tamper v6",
+    "cracked": true,
+    "crack_version": "1.12.3",
+    "crack_source": "EMPRESS",
+    "crack_date": "2023-08-20",
+    "crack_url": "https://github.com/haker146/kraken-db/releases/download/eldenring-v1.12.3/crack.zip",
+    "required_build": "12242905",
+    "notes": null
+  },
+  "1593500": {
+    "name": "God of War",
+    "drm": "Steam DRM",
+    "drm_version": null,
+    "cracked": true,
+    "crack_version": "1.0.2",
+    "crack_source": "CODEX",
+    "crack_date": "2022-01-14",
+    "crack_url": "https://github.com/haker146/kraken-db/releases/download/gow-v1.0.2/crack.zip",
+    "required_build": null,
+    "notes": "Zwykły Steam DRM, nie wymaga konkretnej wersji."
+  },
+  "1086940": {
+    "name": "Baldur's Gate 3",
+    "drm": "None",
+    "drm_version": null,
+    "cracked": true,
+    "crack_version": "Patch 6",
+    "crack_source": "SKIDROW",
+    "crack_date": "2024-02-01",
+    "crack_url": "https://github.com/haker146/kraken-db/releases/download/bg3-patch6/crack.zip",
+    "required_build": null,
+    "notes": "Brak DRM. Instalacja crack'a opcjonalna dla trybu offline."
+  },
+  "990080": {
+    "name": "Hogwarts Legacy",
+    "drm": "Denuvo",
+    "drm_version": "Denuvo Anti-Tamper v8",
+    "cracked": false,
+    "crack_version": null,
+    "crack_source": null,
+    "crack_date": null,
+    "crack_url": null,
+    "required_build": null,
+    "notes": "Denuvo v8 — niezłamane."
+  }
+}

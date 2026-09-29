@@ -1,0 +1,23 @@
+.app-layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--c-bg);
+  /* Subtle radial gradient */
+  background-image:
+    radial-gradient(ellipse 80% 60% at 20% 40%, rgba(15, 30, 80, 0.6), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 80%, rgba(30, 10, 60, 0.4), transparent);
+}
+
+.app-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.app-page {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}

@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ── Design Tokens ──────────────────────────────────────── */
+:root {
+  /* Palette */
+  --c-bg:           #060810;
+  --c-surface-1:    rgba(255, 255, 255, 0.03);
+  --c-surface-2:    rgba(255, 255, 255, 0.06);
+  --c-surface-3:    rgba(255, 255, 255, 0.10);
+  --c-border:       rgba(255, 255, 255, 0.07);
+  --c-border-hover: rgba(255, 255, 255, 0.15);
+  
+  --c-accent:       #38bdf8;
+  --c-accent-dim:   rgba(56, 189, 248, 0.15);
+  --c-accent-glow:  0 0 20px rgba(56, 189, 248, 0.35);
+  
+  --c-green:        #4ade80;
+  --c-green-dim:    rgba(74, 222, 128, 0.15);
+  --c-yellow:       #fbbf24;
+  --c-yellow-dim:   rgba(251, 191, 36, 0.15);
+  --c-purple:       #a78bfa;
+  --c-purple-dim:   rgba(167, 139, 250, 0.15);
+  --c-red:          #f87171;
+  --c-red-dim:      rgba(248, 113, 113, 0.15);
+
+  /* Text */
+  --t-primary:   #f1f5f9;
+  --t-secondary: #94a3b8;
+  --t-muted:     #475569;
+
+  /* Layout */
+  --sidebar-w:   220px;
+  --titlebar-h:  38px;
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   16px;
+  --radius-xl:   24px;
+
+  /* Shadows */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.5);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.6);
+  --shadow-lg:  0 8px 32px rgba(0,0,0,0.7);
+  --shadow-card: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* ── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0; padding: 0; box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%; height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--c-bg);
+  color: var(--t-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+a { color: var(--c-accent); text-decoration: none; }
+button { cursor: pointer; border: none; background: none; color: inherit; font-family: inherit; }
+input, textarea { font-family: inherit; color: inherit; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
