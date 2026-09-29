@@ -296,5 +296,4 @@ pyinstaller>=6.6
     # here so the runner image's pip install -r requirements.txt grabs it
     # alongside everything else. Pin >=6.6 so the steam==1.4.4 + selenium
     # urllib3 conflict doesn't drag a too-old PyInstaller in.
-a i o h t t p > = 3 . 9 . 0  
- 
+aiohttp>=3.9.0
