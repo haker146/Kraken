@@ -1541,7 +1541,7 @@ class WebBridge(QObject):
                 }))
                 import tempfile
                 from pathlib import Path as _Path
-                tmp_dir = _Path(tempfile.mkdtemp(prefix="steamidra_crack_"))
+                tmp_dir = _Path(tempfile.mkdtemp(prefix="kraken_crack_"))
                 archive = download_pixeldrain(file_id, tmp_dir)
                 if archive is None:
                     return (False, "Crack download failed (pixeldrain unreachable).")
@@ -2425,7 +2425,7 @@ def _fetch_steam_platforms(app_ids):
                 "https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json="
                 + _urlparse.quote(_json.dumps(payload, separators=(",", ":")))
             )
-            request = _req.Request(url, headers={"User-Agent": "Mozilla/5.0 SteaMidra"})
+            request = _req.Request(url, headers={"User-Agent": "Mozilla/5.0 Kraken/1.0"})
             with _req.urlopen(request, timeout=8, context=_get_ssl_ctx()) as resp:
                 data = _json.loads(resp.read())
             seen: set[int] = set()
@@ -2542,7 +2542,7 @@ def _fetch_steam_image_urls(app_ids):
             "https://api.steampowered.com/IStoreBrowseService/GetItems/v1?input_json="
             + _urlparse.quote(_json.dumps(payload, separators=(",", ":")))
         )
-        request = _req.Request(url, headers={"User-Agent": "SteaMidra/5.4.0"})
+        request = _req.Request(url, headers={"User-Agent": "Kraken/1.0"})
         with _req.urlopen(request, timeout=5, context=_get_ssl_ctx()) as resp:
             data = _json.loads(resp.read())
         _NSFW_CD_IDS = frozenset({1, 2, 3, 4})
@@ -2931,7 +2931,7 @@ def _load_steam_applist():
         for _ in range(3):
             try:
                 _qs = "&".join(f"{k}={v}" for k, v in _params.items())
-                _req2 = _req.Request(f"{_base}?{_qs}", headers={"User-Agent": "SteaMidra/6.1.0"})
+                _req2 = _req.Request(f"{_base}?{_qs}", headers={"User-Agent": "Kraken/1.0"})
                 with _req.urlopen(_req2, timeout=5, context=_get_ssl_ctx()) as _resp:
                     _data = _json.loads(_resp.read())
                 _apps_batch = _data.get("response", {}).get("apps", [])

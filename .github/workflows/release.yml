@@ -73,6 +73,7 @@ jobs:
           echo "Building Linux zip for version: $VERSION"
           zip -j "Kraken-${VERSION}-linux.zip" \
             Kraken-${VERSION}-x86_64.AppImage \
+            kraken_install.sh \
             steamidra_install.sh \
             kraken.png
       - name: Upload Linux

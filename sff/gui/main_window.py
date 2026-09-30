@@ -399,7 +399,7 @@ class SFFMainWindow(QMainWindow):
         main_tab_layout.addWidget(scroll, stretch=1)
         self.tabs.insertTab(0, main_tab_widget, "Main")
         from sff.gui.help_buttons import add_help_button
-        add_help_button(layout, "Main Hub", "SteaMidra Main Hub\n\n"
+        add_help_button(layout, "Main Hub", "Kraken Main Hub\n\n"
             "Game / Path:\n  Select a Steam game from the dropdown or browse to a game\n"
             "  folder outside Steam. Used by all Game Actions below.\n\n"
             "Game Actions:\n"
@@ -426,7 +426,7 @@ class SFFMainWindow(QMainWindow):
             "    delete, or rename app ID injection profiles.\n"
             "  - Mute: Toggle background music on/off.\n"
             "  - Remove game from library: Remove a game's ACF and registered app ID.\n"
-            "  - Context menu: Add/remove SteaMidra from Windows Explorer\n"
+            "  - Context menu: Add/remove Kraken from Windows Explorer\n"
             "    right-click menu.",
             parent_widget=self,
         )

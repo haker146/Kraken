@@ -40,7 +40,7 @@ class TitleBarWidget(QWidget):
         layout.setContentsMargins(16, 0, 0, 0)
         layout.setSpacing(0)
 
-        title = QLabel("SteaMidra")
+        title = QLabel("Kraken")
         title.setObjectName("TitleBarLabel")
         layout.addWidget(title)
         layout.addStretch()
