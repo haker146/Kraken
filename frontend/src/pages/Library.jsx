@@ -1,23 +1,10 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Clock } from 'lucide-react';
+import { Search, Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import ContextMenu from '../components/ContextMenu';
 import GameSettingsModal from '../components/GameSettingsModal';
 import './Library.css';
-
-const INSTALLED_GAMES = [
-  { app_id: '1091500', name: 'Cyberpunk 2077',         crack_status: 'cracked',   drm: 'Denuvo',    crack_ver: '2.12',   crack_src: 'RUNE',    crack_date: '2024-01-15', playtime: '47h',  last_played: '2 days ago',   size: '70.2 GB' },
-  { app_id: '1245620', name: 'Elden Ring',              crack_status: 'cracked',   drm: 'Denuvo',    crack_ver: '1.12.3', crack_src: 'EMPRESS', crack_date: '2023-08-20', playtime: '120h', last_played: 'Today',        size: '52.0 GB' },
-  { app_id: '1086940', name: "Baldur's Gate 3",         crack_status: 'clean',     drm: 'None',      crack_ver: null,     crack_src: null,      crack_date: null,         playtime: '200h', last_played: 'Yesterday',    size: '122.1 GB' },
-  { app_id: '1593500', name: 'God of War',              crack_status: 'cracked',   drm: 'Steam DRM', crack_ver: '1.0.2',  crack_src: 'CODEX',   crack_date: '2022-01-14', playtime: '32h',  last_played: '1 week ago',   size: '32.1 GB' },
-  { app_id: '1716740', name: 'Atomic Heart',            crack_status: 'cracked',   drm: 'Denuvo',    crack_ver: '1.0',    crack_src: 'RUNE',    crack_date: '2023-03-02', playtime: '18h',  last_played: '3 weeks ago',  size: '58.5 GB' },
-  { app_id: '1145360', name: 'Hades',                   crack_status: 'clean',     drm: 'None',      crack_ver: null,     crack_src: null,      crack_date: null,         playtime: '88h',  last_played: '2 weeks ago',  size: '1.8 GB'  },
-  { app_id: '2050650', name: 'Resident Evil 4',         crack_status: 'cracked',   drm: 'Denuvo',    crack_ver: '1.1.0',  crack_src: 'SKIDROW', crack_date: '2023-05-10', playtime: '24h',  last_played: '1 month ago',  size: '67.4 GB' },
-  { app_id: '1174180', name: 'Red Dead Redemption 2',   crack_status: 'cracked',   drm: 'Rockstar',  crack_ver: '1.0',    crack_src: 'EMPRESS', crack_date: '2021-06-01', playtime: '62h',  last_played: '2 months ago', size: '150.0 GB' },
-  { app_id: '752590',  name: 'A Plague Tale: Requiem',  crack_status: 'cracked',   drm: 'Denuvo',    crack_ver: '1.3',    crack_src: 'RUNE',    crack_date: '2023-01-05', playtime: '11h',  last_played: '3 months ago', size: '55.7 GB' },
-  { app_id: '1912840', name: 'Hi-Fi Rush',              crack_status: 'clean',     drm: 'None',      crack_ver: null,     crack_src: null,      crack_date: null,         playtime: '9h',   last_played: '1 month ago',  size: '25.0 GB' },
-];
 
 const STATUS_META = {
   cracked: { label: '⚡ Cracked', cls: 'cracked' },
@@ -25,13 +12,98 @@ const STATUS_META = {
   locked:  { label: '🔒 Locked',  cls: 'locked' },
 };
 
+const cover = (appId) =>
+  `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+
 export default function Library() {
   const [query, setQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState(null);   // { x, y, game }
-  const [settingsGame, setSettingsGame] = useState(null); // game to show settings for
+  const [contextMenu, setContextMenu] = useState(null);
+  const [settingsGame, setSettingsGame] = useState(null);
   const [favorites, setFavorites] = useState(new Set());
-  const [games, setGames] = useState(INSTALLED_GAMES);
+  const [games, setGames] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const { setActiveGame, setActivePage } = useAppStore();
+
+  const loadLibrary = () => {
+    setLoading(true);
+    setError(null);
+
+    // QWebChannel (production) path
+    if (window.Bridge) {
+      window.Bridge.load_library();
+      return;
+    }
+
+    // Electron path
+    if (window.KrakenAPI) {
+      window.KrakenAPI.call('load_library').then(res => {
+        if (res?.ok) setGames(res.data || []);
+        else setError(res?.error || 'Failed to load library');
+        setLoading(false);
+      }).catch(e => {
+        setError(String(e));
+        setLoading(false);
+      });
+      return;
+    }
+
+    // Dev HTTP path
+    fetch('/api/load_library', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ args: [] }) })
+      .then(r => r.json())
+      .then(data => {
+        // data comes back as task_finished payload via the normal bridge event
+        setLoading(false);
+      })
+      .catch(() => {
+        setError('Backend not reachable');
+        setLoading(false);
+      });
+  };
+
+  // Listen for task_finished events from QWebChannel
+  useEffect(() => {
+    const handler = (json) => {
+      try {
+        const evt = typeof json === 'string' ? JSON.parse(json) : json;
+        if (evt.task === 'library_loaded') {
+          const rawGames = evt.games || [];
+          // Map backend fields to UI shape
+          const mapped = rawGames.map(g => ({
+            app_id:       String(g.app_id || g.appid || ''),
+            name:         g.name || `App ${g.app_id}`,
+            crack_status: g.crack_status || (g.cracked ? 'cracked' : 'clean'),
+            drm:          g.drm || 'Unknown',
+            crack_ver:    g.crack_ver || null,
+            crack_src:    g.crack_src || null,
+            crack_date:   g.crack_date || null,
+            playtime:     g.playtime || '—',
+            last_played:  g.last_played || '—',
+            size:         g.size || '—',
+            path:         g.path || '',
+            image_url:    g.image_url || null,
+          }));
+          setGames(mapped);
+          setLoading(false);
+        }
+      } catch { /* ignore */ }
+    };
+
+    // Hook into QWebChannel bridge
+    if (window.Bridge?.task_finished?.connect) {
+      window.Bridge.task_finished.connect(handler);
+    }
+
+    return () => {
+      if (window.Bridge?.task_finished?.disconnect) {
+        try { window.Bridge.task_finished.disconnect(handler); } catch { /* */ }
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    loadLibrary();
+  }, []);
 
   const filtered = games.filter(g =>
     g.name.toLowerCase().includes(query.toLowerCase())
@@ -46,73 +118,103 @@ export default function Library() {
     setGames(gs => gs.filter(g => g.app_id !== game.app_id));
   };
 
-  const cover = (appId) =>
-    `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+  if (loading) {
+    return (
+      <div className="library-page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <Loader2 size={22} className="spin" style={{ color: 'var(--c-accent)' }} />
+        <span style={{ color: 'var(--t-muted)', fontSize: 14 }}>Loading your library…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="library-page" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, opacity: 0.7 }}>
+        <span style={{ fontSize: 36 }}>⚠️</span>
+        <span style={{ fontSize: 14, color: 'var(--t-secondary)' }}>{error}</span>
+        <button className="lib-refresh-btn" onClick={loadLibrary}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="library-page" onClick={() => setContextMenu(null)}>
-      {/* Header */}
       <div className="library-header">
         <div>
           <h2 className="library-title">Your Library</h2>
-          <p className="library-subtitle">{filtered.length} games installed</p>
+          <p className="library-subtitle">{filtered.length} game{filtered.length !== 1 ? 's' : ''} installed</p>
         </div>
-        <div className="library-search-wrap">
-          <Search size={13} className="lib-search-icon" />
-          <input
-            className="lib-search"
-            placeholder="Filter games…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-          />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="library-search-wrap">
+            <Search size={13} className="lib-search-icon" />
+            <input
+              className="lib-search"
+              placeholder="Filter games…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+            />
+          </div>
+          <button className="lib-refresh-btn" onClick={loadLibrary} title="Refresh library">
+            <RefreshCw size={14} />
+          </button>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="library-grid">
-        {filtered.map((game, i) => {
-          const st = STATUS_META[game.crack_status] || STATUS_META.clean;
-          const isFav = favorites.has(game.app_id);
+      {games.length === 0 ? (
+        <div className="library-empty">
+          <span style={{ fontSize: 40 }}>📦</span>
+          <p>No games in your library yet.</p>
+          <p style={{ fontSize: 12, color: 'var(--t-muted)' }}>
+            Use <strong>Store</strong> to download and unlock games.
+          </p>
+        </div>
+      ) : (
+        <div className="library-grid">
+          {filtered.map((game, i) => {
+            const st = STATUS_META[game.crack_status] || STATUS_META.clean;
+            const isFav = favorites.has(game.app_id);
+            const imgSrc = game.image_url || cover(game.app_id);
 
-          return (
-            <motion.div
-              key={game.app_id}
-              className={`lib-card ${isFav ? 'favorited' : ''}`}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: i * 0.03, duration: 0.2 }}
-              onClick={() => { setActiveGame({ ...game, cover_url: cover(game.app_id) }); setActivePage('game-hub'); }}
-              onContextMenu={(e) => handleContextMenu(e, game)}
-            >
-              {/* Cover */}
-              <div className="lib-card-cover">
-                <img src={cover(game.app_id)} alt={game.name} loading="lazy"
-                  onError={e => { e.target.style.display = 'none'; }} />
-                <div className="lib-card-hover">
-                  <button className="lib-play-btn" onClick={e => e.stopPropagation()}>▶ Play</button>
+            return (
+              <motion.div
+                key={game.app_id}
+                className={`lib-card ${isFav ? 'favorited' : ''}`}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.03, duration: 0.2 }}
+                onClick={() => { setActiveGame({ ...game, cover_url: imgSrc }); setActivePage('game-hub'); }}
+                onContextMenu={(e) => handleContextMenu(e, game)}
+              >
+                <div className="lib-card-cover">
+                  <img
+                    src={imgSrc}
+                    alt={game.name}
+                    loading="lazy"
+                    onError={e => { e.target.src = cover(game.app_id); }}
+                  />
+                  <div className="lib-card-hover">
+                    <button className="lib-play-btn" onClick={e => e.stopPropagation()}>▶ Play</button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Favourite star */}
-              {isFav && <span className="lib-fav-star">★</span>}
+                {isFav && <span className="lib-fav-star">★</span>}
+                <span className={`lib-status-badge ${st.cls}`}>{st.label}</span>
 
-              {/* Status Badge */}
-              <span className={`lib-status-badge ${st.cls}`}>{st.label}</span>
-
-              {/* Info */}
-              <div className="lib-card-info">
-                <p className="lib-card-name">{game.name}</p>
-                <div className="lib-card-meta">
-                  <span><Clock size={10} /> {game.playtime}</span>
-                  <span>{game.size}</span>
+                <div className="lib-card-info">
+                  <p className="lib-card-name">{game.name}</p>
+                  <div className="lib-card-meta">
+                    {game.playtime !== '—' && (
+                      <span><Clock size={10} /> {game.playtime}</span>
+                    )}
+                    {game.size !== '—' && <span>{game.size}</span>}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Context Menu */}
       <AnimatePresence>
         {contextMenu && (
           <ContextMenu
@@ -132,7 +234,6 @@ export default function Library() {
         )}
       </AnimatePresence>
 
-      {/* Settings Modal */}
       <AnimatePresence>
         {settingsGame && (
           <GameSettingsModal
