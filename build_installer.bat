@@ -25,6 +25,20 @@ echo Patched installer.nsi to version %APP_VERSION%
 :: Allow NSI-only mode: pass "nsi" as first argument to skip PyInstaller
 if /i "%~1"=="nsi" goto compile_nsi
 
+:: Build React Web UI
+if exist "frontend\package.json" (
+    echo [0/2] Building React Web UI...
+    pushd frontend
+    call npm.cmd run build 2>nul || call npm run build
+    if %errorlevel% neq 0 (
+        echo Failed to build React Web UI!
+        popd
+        if /i not "%CI%"=="true" pause
+        exit /b 1
+    )
+    popd
+)
+
 echo [1/2] Building PyInstaller distribution...
 call .venv\Scripts\activate.bat 2>nul || (
     echo Activating venv failed — trying system Python

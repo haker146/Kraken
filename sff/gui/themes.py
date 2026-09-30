@@ -85,16 +85,16 @@ THEMES = {
 }
 
 THEME_BACKGROUNDS = {
-    "steam": "#1b2838",
+    "steam": "#070b14",
 }
 
 TITLEBAR_COLORS = {
     "steam": {
-        "bg": "#171a21",
-        "fg": "#c7d5e0",
-        "accent": "#66c0f4",
-        "close": "#e81123",
-        "border": "#2a475e",
+        "bg": "#070b14",
+        "fg": "#e2e8f0",
+        "accent": "#38bdf8",
+        "close": "#ef4444",
+        "border": "#1e293b",
     },
 }
 

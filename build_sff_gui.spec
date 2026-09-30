@@ -82,7 +82,12 @@ store_metadata_dir = os.path.join(spec_root, 'store_metadata')
 if os.path.isdir(store_metadata_dir):
     datas.append((store_metadata_dir, 'store_metadata'))
 
-# Include sff/webui/ folder (HTML/CSS/JS web UI assets)
+# Include modern React Web UI assets (sff/webui_react)
+webui_react_dir = os.path.join(spec_root, 'sff', 'webui_react')
+if os.path.exists(webui_react_dir):
+    datas.append((webui_react_dir, 'sff/webui_react'))
+
+# Include legacy sff/webui/ folder as fallback
 webui_dir = os.path.join(spec_root, 'sff', 'webui')
 if os.path.exists(webui_dir):
     datas.append((webui_dir, 'sff/webui'))

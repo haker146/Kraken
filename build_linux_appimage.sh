@@ -116,6 +116,13 @@ else
     pip install pyinstaller -q 2>/dev/null || pip install pyinstaller
 fi
 
+# ── Step 2.5: Build React Web UI ─────────────────────────────────────────────
+if [ -d "frontend" ] && command -v npm >/dev/null 2>&1; then
+    echo ""
+    echo "==> Building React Web UI..."
+    (cd frontend && npm install && npm run build) || die "Failed to build React Web UI."
+fi
+
 # ── Step 3: PyInstaller ───────────────────────────────────────────────────────
 echo ""
 echo "==> [3/7] Running PyInstaller (2-5 min)..."

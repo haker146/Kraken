@@ -55,6 +55,16 @@ jobs:
           from sff.cloud.google_drive import is_available
           print("Google Drive imports OK; available=", is_available())
           PY
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build React WebUI
+        run: |
+          cd frontend
+          npm install
+          npm run build
+          cd ..
       - name: Build Linux AppImage
         run: bash build_linux_appimage.sh --fresh
       - name: Create Linux zip
@@ -100,6 +110,17 @@ jobs:
             Write-Host "Google Drive OAuth secrets are present"
           }
           python -c "from pathlib import Path; import os; cid=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_ID') or ''; secret=os.environ.get('STEAMIDRA_GDRIVE_CLIENT_SECRET') or ''; Path('sff/core/_gc.py').write_text('# SteaMidra - generated in CI; do not commit\n' + 'def get_ci():\n' + f'    return {cid!r}\n\n' + 'def get_cs():\n' + f'    return {secret!r}\n', encoding='utf-8')"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build React WebUI
+        shell: cmd
+        run: |
+          cd frontend
+          call npm install
+          call npm run build
+          cd ..
       - name: Build PyInstaller folder and NSIS installer
         shell: cmd
         run: |

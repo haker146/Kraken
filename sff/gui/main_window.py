@@ -814,11 +814,19 @@ class SFFMainWindow(QMainWindow):
     def _load_web_ui(self):
         """Load index.html into the QWebEngineView."""
         if getattr(sys, 'frozen', False):
-            webui_dir = Path(sys._MEIPASS) / "sff" / "webui"
+            sff_dir = Path(sys._MEIPASS) / "sff"
         else:
-            webui_dir = Path(__file__).resolve().parent.parent / "webui"
+            sff_dir = Path(__file__).resolve().parent.parent
 
-        self._web_index_path = webui_dir / "index.html"
+        # Prioritize modern React WebUI, fallback to legacy webui
+        react_index = sff_dir / "webui_react" / "index.html"
+        legacy_index = sff_dir / "webui" / "index.html"
+
+        if react_index.exists():
+            self._web_index_path = react_index
+        else:
+            self._web_index_path = legacy_index
+
         if self._web_index_path.exists():
             self._web_view.setUrl(QUrl.fromLocalFile(str(self._web_index_path)))
         else:
@@ -1267,9 +1275,70 @@ class SFFMainWindow(QMainWindow):
             from sff.core.storage.settings import set_setting
             from sff.core.structs import Settings as _S
             set_setting(_S.THEME, key)
+        self._apply_modern_window_styling()
+
+    def _apply_modern_window_styling(self):
+        """Apply modern dark DWM title bar and border styling on Windows."""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            from ctypes import c_int, byref, sizeof
+            hwnd = int(self.winId())
+            dwmapi = ctypes.windll.dwmapi
+
+            # 1. Enable immersive dark mode (Windows 11 + Windows 10 1809+)
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            dark = c_int(1)
+            res = dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, byref(dark), sizeof(dark)
+            )
+            if res != 0:
+                DWMWA_USE_IMMERSIVE_DARK_MODE_OLD = 19
+                dwmapi.DwmSetWindowAttribute(
+                    hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_OLD, byref(dark), sizeof(dark)
+                )
+
+            # 2. Windows 11 title bar & border customization:
+            # Color is 0x00BBGGRR
+            # #070b14 -> R=0x07, G=0x0b, B=0x14 -> 0x00140b07
+            DWMWA_CAPTION_COLOR = 35
+            caption = c_int(0x00140b07)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_CAPTION_COLOR, byref(caption), sizeof(caption)
+            )
+
+            # Text color #e2e8f0 -> R=0xe2, G=0xe8, B=0xf0 -> 0x00f0e8e2
+            DWMWA_TEXT_COLOR = 36
+            text_color = c_int(0x00f0e8e2)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_TEXT_COLOR, byref(text_color), sizeof(text_color)
+            )
+
+            # Border color: dark subtle slate #1e293b -> R=0x1e, G=0x29, B=0x3b -> 0x003b291e
+            DWMWA_BORDER_COLOR = 34
+            border = c_int(0x003b291e)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_BORDER_COLOR, byref(border), sizeof(border)
+            )
+
+            # Rounded corners (Windows 11): 2 = DWMWCP_ROUND
+            DWMWA_WINDOW_CORNER_PREFERENCE = 33
+            corners = c_int(2)
+            dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, byref(corners), sizeof(corners)
+            )
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_modern_window_styling()
 
     def changeEvent(self, event):
         super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange:
+            self._apply_modern_window_styling()
 
     # ── Log forwarding to web UI ────────────────────────────────
 
