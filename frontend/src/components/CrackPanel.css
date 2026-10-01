@@ -147,16 +147,54 @@
 }
 .crack-downgrade-btn:hover { background: rgba(251,191,36,0.35); }
 
+/* Target files */
+.crack-target-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--c-border);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+}
+.crack-target-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--t-muted);
+}
+.crack-files-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.crack-file-chip {
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #e2e8f0;
+}
+
 /* Download */
 .crack-download-area { display: flex; flex-direction: column; gap: 8px; }
+
+.crack-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
 .crack-download-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  width: 100%;
-  padding: 10px;
+  flex: 1;
+  padding: 10px 16px;
   border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 700;
@@ -164,9 +202,39 @@
   color: white;
   box-shadow: 0 4px 14px rgba(139,92,246,0.35);
   transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  cursor: pointer;
 }
 .crack-download-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(139,92,246,0.5); }
 .crack-download-btn:disabled { opacity: 0.7; }
+
+.crack-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  color: var(--t-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.crack-link-btn:hover {
+  background: var(--c-surface-3);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+.crack-link-btn.mirror {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.25);
+}
+.crack-link-btn.mirror:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.5);
+}
 
 .crack-progress {
   position: relative;
@@ -215,6 +283,78 @@
 }
 .crack-uncracked-msg p { font-size: 13px; color: var(--t-secondary); }
 .crack-muted { font-size: 12px; color: var(--t-muted) !important; }
+
+/* Status badge variants */
+.crack-status-badge.drmfree {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+}
+.crack-status-badge.steamdrm {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+/* State info boxes for DRM-Free & Steam DRM */
+.crack-info-state-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.crack-info-state-box.free {
+  border-color: rgba(74, 222, 128, 0.25);
+  background: rgba(74, 222, 128, 0.04);
+}
+.crack-info-state-box.steam {
+  border-color: rgba(56, 189, 248, 0.25);
+  background: rgba(56, 189, 248, 0.04);
+}
+
+.crack-state-icon.free {
+  color: #4ade80;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.crack-state-icon.steam {
+  color: #38bdf8;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.crack-state-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.crack-state-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t-primary);
+}
+
+.crack-state-desc {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--t-secondary);
+  margin: 0;
+}
+
+.crack-note-inline {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--c-yellow);
+  background: var(--c-yellow-dim);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+}
 
 /* Spinner */
 @keyframes spin { to { transform: rotate(360deg); } }

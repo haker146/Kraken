@@ -19,6 +19,13 @@ export default defineConfig({
         target: 'http://127.0.0.1:7734',
         changeOrigin: true,
       },
+      // Steam Store API proxy (bypasses CORS in dev)
+      '/steam-store': {
+        target: 'https://store.steampowered.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/steam-store/, ''),
+      },
     },
   },
   build: {

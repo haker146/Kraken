@@ -1,4 +1,4 @@
-﻿.home-page {
+.home-page {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -55,18 +55,37 @@
 
 .mini-hero {
   position: relative;
-  height: 260px;
+  height: 440px;
   overflow: hidden;
+  flex-shrink: 0;
+  background: #0a0c18;
 }
 
-.mini-hero-bg {
+/* Background image stack — absolute fill */
+.mini-hero-bg-stack {
   position: absolute;
-  inset: -16px;
-  background-size: cover;
-  background-position: center top;
-  filter: blur(0px) brightness(0.65);
+  inset: 0;
   z-index: 0;
-  transition: background-image 0.4s;
+}
+
+.mini-hero-bg-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.mini-hero-bg-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  filter: brightness(0.65);
+}
+.mini-hero-bg-img.loaded {
+  opacity: 1;
 }
 
 .mini-hero-gradient {
@@ -74,9 +93,22 @@
   inset: 0;
   background: linear-gradient(
     to bottom,
-    rgba(6,8,16,0.1) 0%,
-    rgba(6,8,16,0.5) 55%,
-    rgba(6,8,16,0.97) 100%
+    rgba(6,8,16,0.05) 0%,
+    rgba(6,8,16,0.30) 35%,
+    rgba(6,8,16,0.90) 100%
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+.mini-hero-vignette {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgba(6,8,16,0.60) 0%,
+    transparent 45%,
+    rgba(6,8,16,0.15) 100%
   );
   z-index: 1;
   pointer-events: none;
@@ -85,76 +117,155 @@
 .mini-hero-content {
   position: absolute;
   bottom: 52px;
-  left: 28px;
-  right: 28px;
-  z-index: 2;
+  left: 36px;
+  right: 36px;
+  z-index: 3;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 16px;
 }
 
-.mini-hero-header {
-  height: 72px;
-  object-fit: contain;
-  object-position: left center;
-  filter: drop-shadow(0 4px 16px rgba(0,0,0,0.8));
-  max-width: 320px;
+.mini-hero-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mini-hero-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 5px 12px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--cc, #38bdf8) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cc, #38bdf8) 40%, transparent);
+  color: var(--cc, #38bdf8);
+  backdrop-filter: blur(8px);
+}
+
+.mini-hero-drm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 99px;
+  backdrop-filter: blur(8px);
+}
+.mini-hero-drm-pill.cracked {
+  background: rgba(167, 139, 250, 0.22);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+}
+.mini-hero-drm-pill.drmfree {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+.mini-hero-drm-pill.locked {
+  background: rgba(248, 113, 113, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.mini-hero-title-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.mini-hero-text-title {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  margin: 0;
+  line-height: 1.1;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.95);
+  max-width: 650px;
 }
 
 .mini-hero-cta {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 9px 18px;
+  gap: 8px;
+  padding: 12px 26px;
   border-radius: 99px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   background: var(--cat-color, var(--c-accent));
   color: #000;
-  box-shadow: 0 4px 18px rgba(0,0,0,0.4);
-  transition: transform 0.15s, filter 0.15s;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6), 0 0 16px color-mix(in srgb, var(--cat-color, var(--c-accent)) 40%, transparent);
+  transition: transform 0.18s ease, filter 0.18s ease, box-shadow 0.18s ease;
   white-space: nowrap;
-  flex-shrink: 0;
+  cursor: pointer;
 }
-.mini-hero-cta:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.mini-hero-cta:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.15);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7), 0 0 24px color-mix(in srgb, var(--cat-color, var(--c-accent)) 60%, transparent);
+}
 
-/* Thumbnail strip */
-.mini-hero-strip {
+/* ── Arrow navigation ──────────────────────────────────── */
+.mini-hero-arrow {
   position: absolute;
-  bottom: 0; left: 0; right: 0;
-  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 4;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.8);
   display: flex;
-  background: linear-gradient(to top, rgba(6,8,16,0.9) 0%, transparent 100%);
-  backdrop-filter: blur(4px);
-  padding: 4px 12px 0;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s;
 }
-.mini-hero-strip::-webkit-scrollbar { display: none; }
+.mini-hero:hover .mini-hero-arrow { opacity: 1; }
+.mini-hero-arrow:hover { background: rgba(0,0,0,0.75); color: #fff; }
+.mini-hero-arrow.left  { left: 16px; }
+.mini-hero-arrow.right { right: 16px; }
 
-.mini-strip-btn {
-  position: relative;
-  flex-shrink: 0;
-  border-radius: 4px 4px 0 0;
-  overflow: hidden;
-  opacity: 0.55;
-  transition: opacity 0.15s, transform 0.15s;
-  padding: 0;
-}
-.mini-strip-btn:hover { opacity: 0.8; transform: translateY(-1px); }
-.mini-strip-btn.active { opacity: 1; }
-.mini-strip-btn img {
-  width: 72px;
-  height: 27px;
-  object-fit: cover;
-  display: block;
-}
-.mini-strip-bar {
+/* ── Dot navigation ─────────────────────────────────────── */
+.mini-hero-dots {
   position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 2px;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mini-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.28);
+  transition: width 0.25s, background 0.2s, border-radius 0.25s;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.mini-dot:hover { background: rgba(255,255,255,0.55); }
+.mini-dot.active { width: 26px; border-radius: 4px; }
+
+.mini-dot-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
 }
 
 /* ── Info Section ───────────────────────────────────────── */

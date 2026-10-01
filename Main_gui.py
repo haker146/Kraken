@@ -21,6 +21,9 @@ import os
 import sys
 from pathlib import Path
 
+# Compatibility with newer protobuf versions (protobuf >= 4 / 5 / 7) when using steam-py 1.4.4
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
 # guard the PyQt6 import so a hollow build (CI accident) shows a useful
 # message instead of just dumping ModuleNotFoundError to a console window
 # that's already gone. happened once with the v6.3.1 workflow build —

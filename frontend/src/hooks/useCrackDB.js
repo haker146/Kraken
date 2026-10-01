@@ -10,6 +10,17 @@ const CACHE_KEY = 'kraken_crack_db';
 const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours
 
 async function fetchCrackDB() {
+  // Try bundled / local /crack_db.json first
+  try {
+    const localRes = await fetch('/crack_db.json', { cache: 'no-store' });
+    if (localRes.ok) {
+      const data = await localRes.json();
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data }));
+      return data;
+    }
+  } catch {}
+
+  // Fallback to GitHub raw
   try {
     const res = await fetch(DB_URL, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -43,7 +54,27 @@ export function useCrackDB() {
     fetchCrackDB().then(setDb);
   }, []);
 
-  const lookupGame = (appId) => db?.[String(appId)] ?? null;
+  const lookupGame = (appId) => {
+    if (!appId) return null;
+    const entry = db?.[String(appId)];
+    if (entry) return entry;
+
+    // Games not present in isitcracked.com do not have 3rd-party DRM (no Denuvo)
+    // They use standard Steam DRM and run with built-in Steam emulator
+    return {
+      name: null,
+      drm: 'Steam DRM',
+      drm_version: null,
+      cracked: true,
+      crack_version: null,
+      crack_source: 'Steam Emulator / Goldberg',
+      crack_date: null,
+      crack_url: null,
+      required_build: null,
+      notes: 'Standardowe zabezpieczenie Steam DRM. Brak Denuvo — pełne wsparcie przez wbudowany emulator Steam.',
+      is_standard_steam: true,
+    };
+  };
 
   return { db, lookupGame };
 }
