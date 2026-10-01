@@ -1,0 +1,194 @@
+.cloudsaves-page {
+  padding: 40px;
+  max-width: 1000px;
+  margin: 0 auto;
+  color: var(--t-primary);
+  width: 100%;
+}
+
+.cloudsaves-page.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+.cloudsaves-header {
+  margin-bottom: 40px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 24px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.icon-accent {
+  color: var(--c-accent);
+}
+
+.cloudsaves-header h2 {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.cloudsaves-header p {
+  color: var(--t-muted);
+  font-size: 14px;
+  margin: 0;
+}
+
+.cloudsaves-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.cs-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.cs-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cs-field {
+  margin-bottom: 16px;
+}
+
+.cs-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cs-field input, .cs-field select {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: var(--t-primary);
+  font-family: inherit;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.cs-field select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.cs-field input:focus, .cs-field select:focus {
+  outline: none;
+  border-color: var(--c-accent);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--t-muted);
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
+.cs-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.cs-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #fff;
+}
+
+.cs-btn.backup {
+  background: var(--c-accent);
+}
+.cs-btn.backup:hover:not(:disabled) {
+  background: var(--c-accent-hover);
+  transform: translateY(-1px);
+}
+
+.cs-btn.restore {
+  background: rgba(255, 255, 255, 0.1);
+}
+.cs-btn.restore:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.cs-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.cs-logs {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-header {
+  padding: 16px 20px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logs-body {
+  padding: 20px;
+  max-height: 250px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+.log-empty {
+  color: rgba(255, 255, 255, 0.3);
+  font-style: italic;
+}
+
+.log-line {
+  margin-bottom: 4px;
+  line-height: 1.4;
+}

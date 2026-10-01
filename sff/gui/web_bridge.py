@@ -2295,6 +2295,48 @@ class WebBridge(QObject):
     @pyqtSlot()
     def load_library(self):
         return _bridge_load_library(self)
+
+    @pyqtSlot(result=str)
+    def get_settings(self):
+        from sff.gui.bridges.settings_bridge import _bridge_get_settings
+        return _bridge_get_settings(self)
+
+    @pyqtSlot(str, str, result=bool)
+    def set_setting(self, key, value):
+        from sff.gui.bridges.settings_bridge import _bridge_set_setting
+        return _bridge_set_setting(self, key, value)
+
+    @pyqtSlot(str, result=str)
+    def get_secret_setting(self, key):
+        from sff.gui.bridges.settings_bridge import _bridge_get_secret_setting
+        return _bridge_get_secret_setting(self, key)
+
+    @pyqtSlot(str, str, result=bool)
+    def set_secret_setting(self, key, value):
+        from sff.gui.bridges.settings_bridge import _bridge_set_secret_setting
+        return _bridge_set_secret_setting(self, key, value)
+
+    @pyqtSlot(str, str, str, str, str, result=str)
+    def cloud_backup(self, steam_path, steam32_id, app_id, game_name, dest_folder):
+        from sff.gui.bridges.cloud_bridge import _bridge_cloud_backup
+        return _bridge_cloud_backup(self, steam_path, steam32_id, app_id, game_name, dest_folder)
+
+    @pyqtSlot(str, str, str, str, result=str)
+    def cloud_restore(self, dest_folder, steam_path, steam32_id, app_id):
+        from sff.gui.bridges.cloud_bridge import _bridge_cloud_restore
+        return _bridge_cloud_restore(self, dest_folder, steam_path, steam32_id, app_id)
+
+    @pyqtSlot()
+    def get_hero_categories(self):
+        def _do():
+            from sff.core.hero_fetcher import fetch_dynamic_hero_lists
+            return fetch_dynamic_hero_lists()
+        def _on_done(res):
+            self.task_finished.emit(json.dumps({"task": "hero_categories", "data": res}))
+        def _on_err(err):
+            self.task_finished.emit(json.dumps({"task": "hero_categories", "data": None, "error": str(err)}))
+        self._run_async(_do, on_done=_on_done, on_error=_on_err)
+
     @pyqtSlot()
     def refresh_library(self):
         return _bridge_refresh_library(self)

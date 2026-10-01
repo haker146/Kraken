@@ -2187,7 +2187,53 @@ def _bridge_get_steam_client_status(bridge):
     else:
         state = "missing"
         label = "Steam missing"
-    return json.dumps({"state": state, "label": label, "path": path, "running": running, "found": found})
+
+    persona_name = ""
+    avatar_url = ""
+    if found:
+        try:
+            import vdf, base64
+            cfg = Path(path) / "config" / "loginusers.vdf"
+            if cfg.is_file():
+                with cfg.open(encoding="utf-8", errors="replace") as fh:
+                    data = vdf.load(fh)
+                users = data.get("users", {})
+                if isinstance(users, dict):
+                    chosen_id64 = None
+                    chosen_ts = -1
+                    for sid64, entry in users.items():
+                        if not isinstance(entry, dict):
+                            continue
+                        if int(entry.get("MostRecent", 0)) == 1:
+                            chosen_id64 = sid64
+                            persona_name = entry.get("PersonaName", "")
+                            break
+                        ts = int(entry.get("Timestamp", 0))
+                        if ts > chosen_ts:
+                            chosen_ts = ts
+                            chosen_id64 = sid64
+                            persona_name = entry.get("PersonaName", "")
+                
+            avatar_dir = Path(path) / "config" / "avatarcache"
+            if avatar_dir.is_dir():
+                avatars = list(avatar_dir.glob("*_full.png"))
+                if not avatars:
+                    avatars = list(avatar_dir.glob("*.png"))
+                if avatars:
+                    avatars.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                    try:
+                        b64 = base64.b64encode(avatars[0].read_bytes()).decode("ascii")
+                        avatar_url = f"data:image/png;base64,{b64}"
+                    except:
+                        pass
+        except Exception as e:
+            logger.debug(f"Error reading persona details: {e}")
+
+    return json.dumps({
+        "state": state, "label": label, "path": path, 
+        "running": running, "found": found,
+        "persona_name": persona_name, "avatar_url": avatar_url
+    })
 
 
 def _bridge_get_catalog_status(bridge):

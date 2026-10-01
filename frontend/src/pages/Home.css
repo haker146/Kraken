@@ -180,6 +180,15 @@
   flex-direction: column;
 }
 
+.mini-hero-logo {
+  max-width: 400px;
+  max-height: 140px;
+  object-fit: contain;
+  object-position: bottom left;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));
+  margin-bottom: 8px;
+}
+
 .mini-hero-text-title {
   font-size: 38px;
   font-weight: 900;

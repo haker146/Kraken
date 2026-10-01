@@ -22,6 +22,27 @@ const heroImg   = (id) => `https://shared.akamai.steamstatic.com/store_item_asse
 const headerImg = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`;
 const libImg    = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/library_600x900.jpg`;
 
+const DRM_ICONS = {
+  'denuvo': 'https://crackrelease.com/wp-content/uploads/2025/09/Denuvo-Anti-Tamper-drm-icon.png',
+  'steam': 'https://crackrelease.com/wp-content/uploads/2025/09/Steamworks-Steam-DRM-icon.png',
+  'uplay': 'https://crackrelease.com/wp-content/uploads/2025/09/Ubisoft-Connect-Uplay-DRM-icon.png',
+  'ubisoft': 'https://crackrelease.com/wp-content/uploads/2025/09/Ubisoft-Connect-Uplay-DRM-icon.png',
+  'ea': 'https://crackrelease.com/wp-content/uploads/2025/09/Origin-EA-App-DRM-icon.png',
+  'origin': 'https://crackrelease.com/wp-content/uploads/2025/09/Origin-EA-App-DRM-icon.png',
+  'rockstar': 'https://crackrelease.com/wp-content/uploads/2025/09/Rockstar-Games-Launcher-DRM-icon.png',
+  'epic': 'https://crackrelease.com/wp-content/uploads/2025/09/Epic-Online-Services-Epic-Games-Store-DRM-icon.png',
+  'battle.net': 'https://crackrelease.com/wp-content/uploads/2025/09/Battle.net-DRM-icon.png',
+};
+
+function getDrmIcon(drmStr) {
+  if (!drmStr) return null;
+  const s = drmStr.toLowerCase();
+  for (const [key, url] of Object.entries(DRM_ICONS)) {
+    if (s.includes(key)) return url;
+  }
+  return null;
+}
+
 // ── Hero Slideshow Component ──────────────────────────────────────────────────
 function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
   const [idx, setIdx] = useState(0);
@@ -111,23 +132,43 @@ function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
         <h1 className="gh-hero-title">{activeGame.name}</h1>
 
         <div className="gh-hero-meta">
-          {crackInfo.drm === 'None' ? (
-            <span className="gh-drm-badge clean">
-              <ShieldOff size={12} /> DRM-Free
-            </span>
-          ) : crackInfo.drm === 'Steam DRM' ? (
-            <span className="gh-drm-badge steam">
-              <ShieldCheck size={12} /> Steam DRM
-            </span>
-          ) : crackInfo.cracked ? (
-            <span className="gh-drm-badge cracked">
-              <ShieldCheck size={12} /> {crackInfo.drm} — Cracked
-            </span>
-          ) : (
-            <span className="gh-drm-badge locked">
-              <ShieldAlert size={12} /> {crackInfo.drm || 'Unknown DRM'}
-            </span>
-          )}
+          {(() => {
+            const drmIcon = getDrmIcon(crackInfo.drm);
+            if (drmIcon) {
+              return (
+                <span className={`gh-drm-badge with-icon ${crackInfo.cracked ? 'cracked' : 'locked'}`} title={crackInfo.drm}>
+                  <img src={drmIcon} alt={crackInfo.drm} className="gh-drm-icon-img" />
+                  {crackInfo.cracked ? 'Cracked' : 'Protected'}
+                </span>
+              );
+            }
+            if (crackInfo.drm === 'None') {
+              return (
+                <span className="gh-drm-badge clean">
+                  <ShieldOff size={12} /> DRM-Free
+                </span>
+              );
+            }
+            if (crackInfo.drm === 'Steam DRM') {
+              return (
+                <span className="gh-drm-badge steam">
+                  <ShieldCheck size={12} /> Steam DRM
+                </span>
+              );
+            }
+            if (crackInfo.cracked) {
+              return (
+                <span className="gh-drm-badge cracked">
+                  <ShieldCheck size={12} /> {crackInfo.drm} — Cracked
+                </span>
+              );
+            }
+            return (
+              <span className="gh-drm-badge locked">
+                <ShieldAlert size={12} /> {crackInfo.drm || 'Unknown DRM'}
+              </span>
+            );
+          })()}
 
           {activeGame.size && activeGame.size !== '—' && (
             <span className="gh-hero-stat">
@@ -304,6 +345,27 @@ function ActionBar({ game, crackInfo }) {
   const [dlProgress, setDlProgress] = useState(0);
   const isInstalled = !!game?.path;
 
+  useEffect(() => {
+    if (!window.Bridge?.download_progress?.connect) return;
+    const handler = (jsonStr) => {
+      try {
+        const payload = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+        if (payload.app_id === String(game?.app_id)) {
+          setDlProgress(payload.progress || 0);
+          if (payload.progress >= 100 || payload.status?.toLowerCase().includes('error') || payload.status?.toLowerCase().includes('failed')) {
+            setTimeout(() => setDownloading(false), 1500);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to parse download progress:", e);
+      }
+    };
+    window.Bridge.download_progress.connect(handler);
+    return () => {
+      try { window.Bridge.download_progress.disconnect(handler); } catch (e) {}
+    };
+  }, [game?.app_id]);
+
   const handleLaunch = () => {
     setLaunching(true);
     // Bridge call to launch game
@@ -313,14 +375,11 @@ function ActionBar({ game, crackInfo }) {
     setTimeout(() => setLaunching(false), 2000);
   };
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
+    if (!window.Bridge?.download_game_fastest) return;
     setDownloading(true);
     setDlProgress(0);
-    for (let i = 1; i <= 100; i++) {
-      await new Promise(r => setTimeout(r, 40));
-      setDlProgress(i);
-    }
-    setDownloading(false);
+    window.Bridge.download_game_fastest(String(game.app_id));
   };
 
   return (

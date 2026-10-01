@@ -8,18 +8,19 @@ import { useState, useEffect } from 'react';
 const CACHE = new Map();
 const CACHE_TTL = 30 * 60 * 1000; // 30 min
 
-function apiBase() {
-  // In dev Vite proxies /steam-store → store.steampowered.com
-  // In production QWebEngine fetches directly (no CORS)
-  return import.meta.env.DEV ? '/steam-store' : 'https://store.steampowered.com';
-}
+import { bridge } from '../lib/bridge';
 
 async function fetchDetails(appId) {
-  const url = `${apiBase()}/api/appdetails?appids=${appId}&l=english`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return json?.[String(appId)]?.data ?? null;
+  try {
+    // Call the backend bridge directly. It bypasses CORS and Steam's API limits.
+    const resStr = await bridge.call('get_store_game_details', String(appId));
+    if (!resStr) return null;
+    const json = JSON.parse(resStr);
+    return json?.[String(appId)]?.data ?? null;
+  } catch (err) {
+    console.error("Failed to fetch steam details:", err);
+    throw err;
+  }
 }
 
 export function useSteamDetails(appId) {

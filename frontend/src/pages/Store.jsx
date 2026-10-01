@@ -5,30 +5,6 @@ import { useAppStore } from '../store/useAppStore';
 import { useCrackDB } from '../hooks/useCrackDB';
 import './Store.css';
 
-// ── All games list ────────────────────────────────────────────────────────────
-const ALL_GAMES = [
-  { app_id: '1091500', name: 'Cyberpunk 2077',          drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '2.12',    crack_src: 'RUNE',    crack_date: '2024-01-15', tags: ['Open World', 'RPG', 'Sci-fi', 'Action'] },
-  { app_id: '1245620', name: 'Elden Ring',               drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.12.3',  crack_src: 'EMPRESS', crack_date: '2023-08-20', tags: ['Souls-like', 'RPG', 'Dark Fantasy'] },
-  { app_id: '1086940', name: "Baldur's Gate 3",          drm: 'None',      crack_status: 'clean',       crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['RPG', 'Co-op', 'Turn-based'] },
-  { app_id: '1593500', name: 'God of War',               drm: 'Steam DRM', crack_status: 'cracked',     crack_ver: '1.0.2',   crack_src: 'CODEX',   crack_date: '2022-01-14', tags: ['Action', 'Adventure', 'Story Rich'] },
-  { app_id: '990080',  name: 'Hogwarts Legacy',          drm: 'Denuvo',    crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['RPG', 'Open World', 'Magic'] },
-  { app_id: '1716740', name: 'Atomic Heart',             drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.0',     crack_src: 'RUNE',    crack_date: '2023-03-02', tags: ['FPS', 'Action', 'Sci-fi'] },
-  { app_id: '1145360', name: 'Hades',                    drm: 'None',      crack_status: 'clean',       crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['Roguelike', 'Action', 'Indie'] },
-  { app_id: '2050650', name: 'Resident Evil 4',          drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.1.0',   crack_src: 'SKIDROW', crack_date: '2023-05-10', tags: ['Horror', 'Shooter', 'Action'] },
-  { app_id: '1174180', name: 'Red Dead Redemption 2',    drm: 'Rockstar',  crack_status: 'cracked',     crack_ver: '1.0',     crack_src: 'EMPRESS', crack_date: '2021-06-01', tags: ['Open World', 'Western', 'Adventure'] },
-  { app_id: '752590',  name: 'A Plague Tale: Requiem',   drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.3',     crack_src: 'RUNE',    crack_date: '2023-01-05', tags: ['Action', 'Stealth', 'Story Rich'] },
-  { app_id: '1888160', name: 'The Callisto Protocol',    drm: 'Denuvo',    crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['Horror', 'Survival', 'Sci-fi'] },
-  { app_id: '2358720', name: 'Black Myth: Wukong',       drm: 'Denuvo',    crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['Action', 'RPG', 'Mythology'] },
-  { app_id: '2767030', name: 'S.T.A.L.K.E.R. 2',        drm: 'Denuvo',    crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['FPS', 'Survival', 'Open World'] },
-  { app_id: '1382330', name: 'Death Stranding 2',        drm: 'Steam DRM', crack_status: 'cracked',     crack_ver: '1.001',   crack_src: 'CODEX',   crack_date: '2025-06-12', tags: ['Action', 'Stealth', 'Story Rich'] },
-  { app_id: '1877480', name: 'Hogwarts Mystery',         drm: 'EAC',       crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['RPG', 'Magic', 'Adventure'] },
-  { app_id: '1912840', name: 'Hi-Fi Rush',               drm: 'None',      crack_status: 'clean',       crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['Action', 'Rhythm', 'Indie'] },
-  { app_id: '1604030', name: 'V Rising',                 drm: 'Steam DRM', crack_status: 'cracked',     crack_ver: '1.0',     crack_src: 'PLAZA',   crack_date: '2024-05-08', tags: ['Survival', 'RPG', 'Co-op'] },
-  { app_id: '1817190', name: 'Ghostwire: Tokyo',         drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.0',     crack_src: 'RUNE',    crack_date: '2023-04-14', tags: ['Action', 'Adventure', 'Open World'] },
-  { app_id: '2239430', name: 'Mortal Kombat 1',          drm: 'Denuvo',    crack_status: 'not_cracked', crack_ver: null,      crack_src: null,      crack_date: null,         tags: ['Fighting', 'Action', 'Multiplayer'] },
-  { app_id: '2379780', name: 'Lords of the Fallen',      drm: 'Denuvo',    crack_status: 'cracked',     crack_ver: '1.5.88',  crack_src: 'EMPRESS', crack_date: '2024-03-22', tags: ['Souls-like', 'Dark Fantasy', 'RPG'] },
-];
-
 const FILTERS = [
   { id: 'all',         label: 'All Games' },
   { id: 'cracked',     label: '⚡ Cracked' },
@@ -124,30 +100,111 @@ const PAGE_SIZE = 15;
 export default function Store() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(0); // 0-indexed for offset
+  const [games, setGames] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const loaderRef = useRef(null);
+  const { db } = useCrackDB();
+  const searchIdRef = useRef('');
 
-  const filtered = ALL_GAMES.filter(g => {
-    const matchQ = g.name.toLowerCase().includes(query.toLowerCase());
-    const matchF = filter === 'all' || g.crack_status === filter;
-    return matchQ && matchF;
-  });
+  // ── Call backend search ────────────────────────────────────────────────────────
+  const fetchGames = useCallback((reset = false) => {
+    if (!window.Bridge?.search_games) return;
+    const reqId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+    searchIdRef.current = reqId;
+    
+    if (reset) {
+      setLoading(true);
+      setGames([]);
+    }
+    
+    const offset = reset ? 0 : page * PAGE_SIZE;
+    // Map our filter format to what backend expects if necessary, 
+    // but the backend takes (query, offset, per_page, sort_by, tag, request_id)
+    window.Bridge.search_games(query, offset, PAGE_SIZE, 'updated', '', reqId);
+  }, [query, filter, page]);
 
-  const visible = filtered.slice(0, page * PAGE_SIZE);
-  const hasMore = visible.length < filtered.length;
+  // Handle QWebChannel response
+  useEffect(() => {
+    if (!window.Bridge?.search_results?.connect) return;
+    const handler = (jsonStr) => {
+      try {
+        const res = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+        if (res.request_id !== searchIdRef.current) return; // Stale result
+        
+        const rawGames = res.games || [];
+        
+        // Enrich from crackDB since the backend might not have up-to-date crack status
+        const enriched = rawGames.map(g => {
+          const aid = String(g.app_id || g.appid);
+          const crackEntry = db?.[aid];
+          const drm = crackEntry?.drm || g.drm || 'Unknown';
+          let cStatus = 'not_cracked';
+          if (crackEntry?.cracked) {
+             cStatus = (drm === 'None' || drm.toLowerCase().includes('removed')) ? 'clean' : 'cracked';
+          }
+          return {
+            app_id: aid,
+            name: g.name,
+            image_url: g.image_url || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${aid}/capsule_616x353.jpg`,
+            drm: drm,
+            crack_status: g.crack_status || cStatus,
+            crack_ver: crackEntry?.crack_ver || g.crack_ver,
+            crack_src: crackEntry?.crack_source || g.crack_src,
+            crack_date: crackEntry?.crack_date || g.crack_date,
+            tags: [],
+          };
+        });
+
+        // Local filtering since backend search_games doesn't fully support crack_status filters yet
+        let filtered = enriched;
+        if (filter !== 'all') {
+          filtered = enriched.filter(g => g.crack_status === filter);
+        }
+
+        setGames(prev => {
+           // We might need to handle offset logically, but since we re-request and get chunks:
+           return res.offset === 0 ? filtered : [...prev, ...filtered];
+        });
+        setTotal(res.total || 0);
+        setHasMore(res.total > (res.offset || 0) + rawGames.length);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to parse search results', err);
+      }
+    };
+    
+    window.Bridge.search_results.connect(handler);
+    return () => {
+      try { window.Bridge.search_results.disconnect(handler); } catch (e) {}
+    };
+  }, [db, filter]);
 
   // Infinite scroll
   useEffect(() => {
-    if (!loaderRef.current) return;
+    if (!loaderRef.current || loading) return;
     const obs = new IntersectionObserver(([e]) => {
       if (e.isIntersecting && hasMore) setPage(p => p + 1);
     }, { threshold: 0.1 });
     obs.observe(loaderRef.current);
     return () => obs.disconnect();
-  }, [hasMore]);
+  }, [hasMore, loading]);
 
-  // Reset page on filter/query change
-  useEffect(() => { setPage(1); }, [query, filter]);
+  // Trigger search on query/filter/page change
+  useEffect(() => {
+    if (page === 0) {
+      fetchGames(true);
+    } else {
+      fetchGames(false);
+    }
+  }, [query, filter, page, fetchGames]);
+
+  // Reset page when query/filter changes
+  useEffect(() => {
+    setPage(0);
+  }, [query, filter]);
 
   return (
     <div className="store-page">
@@ -176,22 +233,28 @@ export default function Store() {
       </div>
 
       {/* Count */}
-      <div className="store-count">{filtered.length} games</div>
+      <div className="store-count">{total} games</div>
 
       {/* List */}
       <div className="store-list">
-        {visible.map((game, i) => (
+        {games.map((game, i) => (
           <StoreRow key={game.app_id + i} game={game} index={i} />
         ))}
 
         {/* Infinite scroll sentinel */}
-        {hasMore && (
+        {hasMore && !loading && (
           <div ref={loaderRef} className="store-loader">
             <span>Loading more…</span>
           </div>
         )}
 
-        {visible.length === 0 && (
+        {loading && (
+          <div className="store-loader">
+            <span>Searching...</span>
+          </div>
+        )}
+
+        {games.length === 0 && !loading && (
           <div className="store-empty">No games matching your search.</div>
         )}
       </div>

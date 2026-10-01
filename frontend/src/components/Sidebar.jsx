@@ -33,9 +33,18 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="sidebar-logo">
         <div className="sidebar-logo-icon">
-          <img src="/kraken.png" alt="K" onError={e => e.target.style.display = 'none'} />
+          <img 
+            src={steamStatus.running && steamStatus.avatar_url ? steamStatus.avatar_url : "/kraken.png"} 
+            alt="K" 
+            onError={e => { e.target.src = '/kraken.png'; }}
+            style={{ borderRadius: (steamStatus.running && steamStatus.avatar_url) ? '50%' : '8px' }}
+          />
         </div>
-        <span className="sidebar-logo-text">Kraken</span>
+        <span className="sidebar-logo-text" style={{ fontSize: steamStatus.running ? 16 : 12, lineHeight: 1.2 }}>
+          {steamStatus.running 
+            ? (steamStatus.persona_name || "Kraken") 
+            : "Brak uruchomionego steam"}
+        </span>
       </div>
 
       {/* Nav Main */}

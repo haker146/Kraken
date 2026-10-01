@@ -16,6 +16,7 @@ const heroImg  = (id) => `https://shared.akamai.steamstatic.com/store_item_asset
 const capImg   = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/capsule_616x353.jpg`;
 const headerImg = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`;
 const libImg    = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/library_600x900.jpg`;
+const logoImg   = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/logo.png`;
 
 // ── Categories ────────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -298,7 +299,16 @@ function MiniHero({ appIds, catColor, catId, catLabel }) {
               transition={{ duration: 0.3, ease: 'easeOut' }}
               className="mini-hero-title-box"
             >
-              <h2 className="mini-hero-text-title">{gameName}</h2>
+              <img 
+                src={logoImg(appId)} 
+                alt={gameName}
+                className="mini-hero-logo"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'block';
+                }}
+              />
+              <h2 className="mini-hero-text-title" style={{ display: 'none' }}>{gameName}</h2>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -389,13 +399,48 @@ const INFO_CARDS = [
 export default function Home() {
   const [activeCat, setActiveCat] = useState('cracked');
   const cat = CATEGORIES.find(c => c.id === activeCat);
+  const { db } = useCrackDB();
 
-  // Pick 8 random games per category — re-picked when category changes
+  const [dynamicAppIds, setDynamicAppIds] = useState(CATEGORY_APPIDS);
   const [displayIds, setDisplayIds] = useState(() => pickRandom(CATEGORY_APPIDS['cracked'], 8));
 
+  // Fetch live categories from the web via Python backend
   useEffect(() => {
-    setDisplayIds(pickRandom(CATEGORY_APPIDS[activeCat], 8));
-  }, [activeCat]);
+    // 1. Listen for the response
+    const handler = (jsonStr) => {
+      try {
+        const res = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+        if (res.task === 'hero_categories' && res.data) {
+          // Merge with what we have to ensure no empty categories
+          setDynamicAppIds(prev => ({
+            cracked: res.data.cracked?.length ? res.data.cracked : prev.cracked,
+            not_cracked: res.data.not_cracked?.length ? res.data.not_cracked : prev.not_cracked,
+            new_releases: res.data.new_releases?.length ? res.data.new_releases : prev.new_releases,
+            denuvo_removed: res.data.denuvo_removed?.length ? res.data.denuvo_removed : prev.denuvo_removed,
+          }));
+        }
+      } catch (e) {
+        console.error("Failed to parse hero categories", e);
+      }
+    };
+    
+    if (window.Bridge?.task_finished?.connect) {
+      window.Bridge.task_finished.connect(handler);
+    }
+    
+    // 2. Trigger the fetch
+    if (window.Bridge?.get_hero_categories) {
+      window.Bridge.get_hero_categories();
+    }
+    
+    return () => {
+      try { window.Bridge?.task_finished?.disconnect(handler); } catch (e) {}
+    };
+  }, []);
+
+  useEffect(() => {
+    setDisplayIds(pickRandom(dynamicAppIds[activeCat] || CATEGORY_APPIDS[activeCat], 8));
+  }, [activeCat, dynamicAppIds]);
 
   return (
     <div className="home-page">

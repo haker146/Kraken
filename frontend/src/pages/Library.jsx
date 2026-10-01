@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -89,20 +89,29 @@ export default function Library() {
       } catch { /* ignore */ }
     };
 
-    // Hook into QWebChannel bridge
-    if (window.Bridge?.task_finished?.connect) {
-      window.Bridge.task_finished.connect(handler);
-    }
+    let attempts = 0;
+    let connected = false;
+
+    const init = () => {
+      if (window.Bridge?.task_finished?.connect) {
+        window.Bridge.task_finished.connect(handler);
+        connected = true;
+        loadLibrary();
+      } else if (window.KrakenAPI || attempts > 20) {
+        // Fallback for Electron / Dev HTTP
+        loadLibrary();
+      } else {
+        attempts++;
+        setTimeout(init, 50);
+      }
+    };
+    init();
 
     return () => {
-      if (window.Bridge?.task_finished?.disconnect) {
+      if (connected && window.Bridge?.task_finished?.disconnect) {
         try { window.Bridge.task_finished.disconnect(handler); } catch { /* */ }
       }
     };
-  }, []);
-
-  useEffect(() => {
-    loadLibrary();
   }, []);
 
   const filtered = games.filter(g =>
