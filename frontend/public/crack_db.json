@@ -13,7 +13,7 @@
     "required_build": null,
     "notes": "Ominięcie Denuvo v16 przez EMPRESS. Wypakuj zawartość do folderu z grą z nadpisaniem plików."
   },
-  "2358720": {
+  "990080": {
     "name": "Hogwarts Legacy",
     "drm": "Denuvo",
     "drm_version": "Denuvo Anti-Tamper v8",
@@ -26,6 +26,20 @@
     "target_files": ["HogwartsLegacy.exe", "EMP.dll", "steam_api64.dll"],
     "required_build": "10461750",
     "notes": "Crack EMPRESS dla premierowego buildu Hogwarts Legacy (Denuvo v8 bypass)."
+  },
+  "2358720": {
+    "name": "Black Myth: Wukong",
+    "drm": "Denuvo",
+    "drm_version": "Denuvo Anti-Tamper",
+    "crack_version": null,
+    "crack_source": null,
+    "crack_date": null,
+    "crack_url": null,
+    "mirror_url": null,
+    "file_size": null,
+    "target_files": [],
+    "required_build": null,
+    "notes": "Gra posiada zabezpieczenie Denuvo. Obecnie brak publicznego cracka."
   },
   "1174180": {
     "name": "Red Dead Redemption 2",

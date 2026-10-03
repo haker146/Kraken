@@ -266,7 +266,17 @@ class ManifestDownloader:
             auto_fetch = True
         main_app_data = {}
         if auto_fetch:
-            main_app_data = self.provider.get_single_app_info(app_id)
+            if self.provider is None:
+                try:
+                    from sff.network.steam_client import create_provider_for_current_thread
+                    self.provider = create_provider_for_current_thread()
+                except Exception as pe:
+                    logger.debug("Could not auto-create Steam provider: %s", pe)
+            if self.provider is not None:
+                try:
+                    main_app_data = self.provider.get_single_app_info(app_id)
+                except Exception as se:
+                    logger.debug("Provider get_single_app_info failed: %s", se)
         context = ManifestContext(
             app_id=app_id,
             app_data=main_app_data,

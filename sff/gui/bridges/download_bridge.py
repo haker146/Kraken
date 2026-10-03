@@ -161,7 +161,7 @@ def _bridge_download_game_fastest(bridge, app_id):
     bridge._run_async(_do, on_done=_on_done)
 
 
-def _bridge_download_game_with_source(bridge, app_id, source, request_update='0', lua_path='', manifest_folder='', branch='', file_type=''):
+def _bridge_download_game_with_source(bridge, app_id, source, request_update='0', lua_path='', manifest_folder='', branch='', file_type='', build_id=''):
     """Fastest download with explicit source choice ('hubcap', 'oureveryday', 'ryuu', or 'local').
     Emits download_progress + task_finished signals.
     When source='local', lua_path is required (path to .lua/.zip/.rar/.7z),
@@ -177,7 +177,7 @@ def _bridge_download_game_with_source(bridge, app_id, source, request_update='0'
         if source == "local":
             return _bridge_run_local_import(bridge, app_id, lua_path, manifest_folder)
         if sys.platform == "win32":
-            return _bridge_run_windows_fastest(bridge, app_id, source=source, request_update=(request_update == '1'), branch=branch, file_type=file_type)
+            return _bridge_run_windows_fastest(bridge, app_id, source=source, request_update=(request_update == '1'), branch=branch, file_type=file_type, build_id=build_id)
         else:
             return _bridge_run_linux_fastest(bridge, app_id)
 
@@ -314,7 +314,7 @@ def _bridge_run_local_import(bridge, app_id, lua_path, manifest_folder=''):
         return False
 
 
-def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False, branch='', file_type=''):
+def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False, branch='', file_type='', build_id=''):
     """Prompt-free 11-step pipeline for Windows."""
     try:
         from sff.lua.choices import download_lua_direct
@@ -420,13 +420,76 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
         except Exception as e:
             logger.warning("install_lua_to_steam failed: %s", e)
 
-        # Step 7: write ACF + patch workshop ACF
+        # Step 7: download & stage manifests into depotcache
         bridge.download_progress.emit(json.dumps({
-            "app_id": app_id, "status": "Writing ACF files", "progress": 70
+            "app_id": app_id, "status": "Downloading manifests...", "progress": 70
+        }))
+        manifest_map = {}
+        buildid = "0"
+        total_size = 0
+        try:
+            from sff.network.steam_client import create_provider_for_current_thread
+            from sff.manifest.downloader import ManifestDownloader
+            provider = create_provider_for_current_thread()
+            downloader = ManifestDownloader(
+                provider=provider,
+                steam_path=steam_path,
+                use_hubcap=(selected_source == LuaEndpoint.HUBCAP),
+            )
+            
+            if build_id and str(build_id).strip().isdigit():
+                from sff.lua.endpoints import fetch_build_details
+                build_pins = fetch_build_details(build_id)
+                if build_pins:
+                    lua_depots = {str(pair.depot_id) for pair in parsed.depots}
+                    manifest_map = {depot: gid for depot, gid in build_pins.items() if depot in lua_depots}
+                    buildid = str(build_id)
+                    from sff.lua.manager import write_manifest_pins_to_lua, remove_depots_from_lua
+                    write_manifest_pins_to_lua(lua_path, manifest_map)
+                    to_delete = lua_depots - set(build_pins)
+                    if to_delete:
+                        remove_depots_from_lua(lua_path, to_delete)
+                    lua_contents = lua_path.read_text(encoding="utf-8", errors="replace")
+                    parsed = parse_lua_contents(lua_contents, lua_path)
+                else:
+                    manifest_map = downloader.get_manifest_ids(parsed, auto=True)
+            else:
+                manifest_map = downloader.get_manifest_ids(parsed, auto=True)
+                
+            downloader.download_manifests_parallel(parsed, auto_manifest=True, manifest_override=manifest_map)
+
+            # Retrieve buildid and calculate game size from Steam app info
+            if provider:
+                try:
+                    app_info = provider.get_single_app_info(int(app_id), quick=True)
+                    if app_info:
+                        if buildid == "0":
+                            buildid = str(
+                                app_info.get("depots", {})
+                                .get("branches", {})
+                                .get("public", {})
+                                .get("buildid", "0")
+                            )
+                        depots_info = app_info.get("depots", {})
+                        for did in manifest_map.keys():
+                            d_meta = depots_info.get(str(did), {})
+                            manifest_meta = d_meta.get("manifests", {}).get("public", {})
+                            if isinstance(manifest_meta, dict):
+                                total_size += int(manifest_meta.get("size", 0) or 0)
+                            else:
+                                total_size += int(d_meta.get("maxsize", 0) or 0)
+                except Exception as ie:
+                    logger.debug("Could not resolve buildid or size from Steam app info: %s", ie)
+        except Exception as e:
+            logger.warning("Manifest download failed: %s", e)
+
+        # Step 8: write ACF + patch workshop ACF
+        bridge.download_progress.emit(json.dumps({
+            "app_id": app_id, "status": "Writing ACF files", "progress": 80
         }))
         acf_writer = ACFWriter(lib_path)
         try:
-            acf_writer.write_acf(parsed)
+            acf_writer.write_acf(parsed, manifest_override=manifest_map, buildid=buildid, size_on_disk=total_size)
         except Exception as e:
             logger.warning("write_acf failed: %s", e)
         try:
@@ -435,19 +498,14 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
         except Exception as e:
             logger.warning("patch_workshop_acf failed: %s", e)
 
-        # Step 8: register in libraryfolders.vdf
+        # Step 9: register in libraryfolders.vdf
         bridge.download_progress.emit(json.dumps({
-            "app_id": app_id, "status": "Registering in library", "progress": 80
+            "app_id": app_id, "status": "Registering in library", "progress": 90
         }))
         try:
             ensure_library_has_app(steam_path, lib_path, app_id)
         except Exception as e:
             logger.warning("ensure_library_has_app failed: %s", e)
-
-        # Step 9: skip manifest download — Lua + depotcache already seeded.
-        # ManifestDownloader would trigger a 20-45s steam_client login that
-        # freezes the UI. The acf_writer + ensure_library_has_app above
-        # already registered everything Steam needs.
 
         # Step 10: track in download manager
         bridge.download_progress.emit(json.dumps({

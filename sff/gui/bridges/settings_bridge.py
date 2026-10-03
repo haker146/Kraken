@@ -39,5 +39,11 @@ def _bridge_set_secret_setting(bridge, key, value):
     for s in Settings:
         if s.value.storage_key == key and s.value.is_secret:
             set_setting(s, value)
+            if s == Settings.HUBCAP_KEY:
+                val_str = str(value).strip() if value else ""
+                bridge._api_key = val_str if val_str else None
+                bridge._store_client = None
+                bridge._hubcap_unavailable = not bool(bridge._api_key)
+                logger.debug("Hubcap API key updated in bridge: %s", bool(bridge._api_key))
             return True
     return False

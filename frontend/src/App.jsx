@@ -42,28 +42,45 @@ export default function App() {
   const setSteamStatus = useAppStore(s => s.setSteamStatus);
 
   React.useEffect(() => {
+    let lastStatus = null;
+
     const fetchStatus = () => {
       bridge.call('get_steam_client_status').then(res => {
-        if (res) {
-          try {
-            const data = typeof res === 'string' ? JSON.parse(res) : res;
-            setSteamStatus({
-              connected: data.running,
-              path: data.path,
-              label: data.label,
-              running: data.running,
-              persona_name: data.persona_name,
-              avatar_url: data.avatar_url
-            });
-          } catch (e) {
-            console.error(e);
+        if (!res) return;
+        try {
+          const data = typeof res === 'string' ? JSON.parse(res) : res;
+          // Keep previous persona/avatar data when Steam goes momentarily
+          // missing so a single failed VDF read doesn't clear the sidebar.
+          const next = {
+            connected:    data.running,
+            path:         data.path,
+            label:        data.label,
+            running:      data.running,
+            persona_name: data.persona_name || lastStatus?.persona_name || '',
+            avatar_url:   data.avatar_url   || lastStatus?.avatar_url   || '',
+          };
+          // Only re-render if something actually changed
+          const changed = !lastStatus
+            || lastStatus.running      !== next.running
+            || lastStatus.persona_name !== next.persona_name
+            || lastStatus.avatar_url   !== next.avatar_url
+            || lastStatus.label        !== next.label;
+          if (changed) {
+            lastStatus = next;
+            setSteamStatus(next);
           }
+        } catch (e) {
+          console.error('[App] steam status parse error:', e);
         }
       }).catch(() => {});
     };
 
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 5000);
+    // Wait for bridge to be ready before the first poll
+    bridge.ready.then(() => {
+      fetchStatus();
+    });
+
+    const interval = setInterval(fetchStatus, 8000);
     return () => clearInterval(interval);
   }, []);
 

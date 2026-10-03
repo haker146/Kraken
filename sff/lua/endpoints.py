@@ -350,10 +350,14 @@ def get_hubcap(dest, app_id, depotcache = None, hubcap_key = None):
         if hubcap_key:
             pass  # pre-validated key passed in — skip prompt/validation
         elif not (hubcap_key := get_setting(Settings.HUBCAP_KEY)):
+            from sff.ui.prompts import has_gui_backend
+            if has_gui_backend():
+                print(Fore.YELLOW + "No Hubcap API key configured in Settings. Skipping Hubcap." + Style.RESET_ALL)
+                return None
             hubcap_key = prompt_secret(
                 "Paste your Hubcap API key here: ",
-                lambda x: x.startswith("smm"),
-                "That's not a Hubcap API key!",
+                lambda x: bool(x and x.strip()),
+                "That's not a valid API key!",
                 long_instruction=(
                     "Go to the Hubcap Manifest website and request an API key. It's free."
                 ),
@@ -387,7 +391,11 @@ def get_hubcap(dest, app_id, depotcache = None, hubcap_key = None):
             print(Fore.RED + "\nHubcap API key is invalid or expired." + Style.RESET_ALL)
             _attempts += 1
             if _attempts >= _max_attempts:
-                print(Fore.YELLOW + f"Max API key entry attempts ({_max_attempts}) reached. Please update your key in Settings." + Style.RESET_ALL)
+                print(Fore.YELLOW + f"Max API key entry attempts reached. Please update your key in Settings." + Style.RESET_ALL)
+                return None
+            from sff.ui.prompts import has_gui_backend
+            if has_gui_backend():
+                # In GUI mode, don't trap the thread in a prompt modal loop
                 return None
             if prompt_confirm("Do you want to enter a new API key?"):
                 set_setting(Settings.HUBCAP_KEY, "")

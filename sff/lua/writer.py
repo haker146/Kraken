@@ -80,11 +80,9 @@ class ACFWriter:
         buildid: str = "0",
         size_on_disk: int = 0,
     ):
-        # On Windows, LumaCore manages app ownership — ACF writing is not needed
-        # and can cause Steam to show "Purchase" on secondary accounts.
-        if sys.platform == "win32":
-            logger.debug("write_acf: skipped on Windows (LumaCore handles ownership)")
-            return
+        # On Windows, LumaCore manages app ownership, but we still need to write the ACF
+        # so Steam recognizes the game as installed instead of prompting for installation.
+        # Removing the skip here.
 
         acf_file = self.steam_lib_path / f"steamapps/appmanifest_{lua.app_id}.acf"
         do_write_acf = True
@@ -164,10 +162,7 @@ class ACFWriter:
         buildid: str = "0",
         empty_depots: bool = False,
     ):
-        # On Windows, LumaCore manages app ownership — ACF writing is not needed.
-        if sys.platform == "win32":
-            logger.debug("write_acf_direct: skipped on Windows (LumaCore handles ownership)")
-            return
+        # ACF writing is needed on all platforms so Steam recognizes the game as installed.
         app_name = get_game_name(lua.app_id)
         app_id_str = str(lua.app_id)
         installdir = sanitize_filename(app_name).replace("'", "").strip()

@@ -195,6 +195,34 @@ def _kick_dotnet_check():
 
 _kick_dotnet_check()
 
+def _kick_lumacore_check(steam_path):
+    if sys.platform != "win32":
+        return
+    try:
+        if not steam_path:
+            return
+        dll_path = Path(steam_path) / "LumaCore.dll"
+        if dll_path.exists():
+            return
+        
+        # Not present. Run the installer on a worker thread.
+        def _bg():
+            class _LogPrinter:
+                def __call__(self, msg):
+                    try:
+                        logger.info("[lumacore-bootstrap] %s", str(msg))
+                    except Exception:
+                        pass
+            try:
+                from sff.lumacore.lumacore_setup import install_lumacore
+                install_lumacore(str(steam_path), print_fn=_LogPrinter())
+            except Exception:
+                logger.exception("lumacore background bootstrap raised")
+        import threading
+        threading.Thread(target=_bg, name="lumacore-bootstrap", daemon=True).start()
+    except Exception:
+        logger.exception("lumacore launch-time check raised before kicking")
+
 
 def get_steam_path_gui():
     path_str = get_setting(Settings.STEAM_PATH)
@@ -365,6 +393,8 @@ def main():
             continue
         steam_path = path_obj.resolve()
         set_setting(Settings.STEAM_PATH, str(steam_path))
+
+    _kick_lumacore_check(steam_path)
 
     from sff.gui.gui_prompts import install as install_gui_prompts
     install_gui_prompts()

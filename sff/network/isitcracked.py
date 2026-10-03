@@ -154,6 +154,45 @@ def _parse_html(html: str) -> dict | None:
     }
 
 
+def _fetch_crackrelease(slug: str) -> dict | None:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    try:
+        from bs4 import BeautifulSoup
+        with httpx.Client(timeout=6.0, follow_redirects=True, headers=headers) as client:
+            resp = client.get(f"https://crackrelease.com/{slug}/")
+            if resp.status_code != 200:
+                return None
+            soup = BeautifulSoup(resp.text, "html.parser")
+            pill = soup.select_one(".gam-status-pill")
+            counter = soup.select_one(".gam-status-counter")
+            status_text = pill.get_text(strip=True).title() if pill else ""
+            if not status_text:
+                return None
+            meta = {}
+            for item in soup.select(".cw-meta-item"):
+                txt = item.get_text(":", strip=True).split(":", 1)
+                if len(txt) == 2:
+                    meta[txt[0].strip().upper()] = txt[1].strip()
+            return {
+                "status": status_text,
+                "status_key": status_text.lower(),
+                "days": counter.get_text(strip=True) if counter else "",
+                "protection": meta.get("DRM PROTECTION", ""),
+                "scene_group": meta.get("SCENE GROUP", ""),
+                "crack_date": meta.get("CRACK DATE", ""),
+                "release_date": meta.get("RELEASE DATE", ""),
+                "url": str(resp.url),
+                "slug": slug,
+            }
+    except Exception as exc:
+        logger.debug("crackrelease fetch failed for %s: %s", slug, exc)
+        return None
+
+
 def _fetch_slug(slug: str) -> dict | None:
     now = time.time()
     with _lock:
@@ -161,28 +200,32 @@ def _fetch_slug(slug: str) -> dict | None:
         if cached and (now - cached[0]) < _TTL:
             return dict(cached[1]) if cached[1] else None
 
-    headers_base = {
-        "Accept": "text/html,application/xhtml+xml",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    parsed = None
-    try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
-            for ua in _USER_AGENTS:
-                try:
-                    resp = client.get(_BASE + slug, headers={**headers_base, "User-Agent": ua})
-                    if resp.status_code != 200:
-                        continue
-                    parsed = _parse_html(resp.text)
-                    if parsed:
-                        parsed["url"] = _BASE + slug
-                        parsed["slug"] = slug
-                        break
-                except (httpx.TimeoutException, httpx.RequestError) as exc:
-                    logger.debug("isitcracked fetch failed for %s: %s", slug, exc)
-    except Exception as exc:
-        logger.debug("isitcracked client error for %s: %s", slug, exc)
-        parsed = None
+    # Try crackrelease.com first for rich scene group / dates / counter
+    parsed = _fetch_crackrelease(slug)
+
+    # Fallback to isitcracked.com
+    if not parsed:
+        headers_base = {
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+        try:
+            with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
+                for ua in _USER_AGENTS:
+                    try:
+                        resp = client.get(_BASE + slug, headers={**headers_base, "User-Agent": ua})
+                        if resp.status_code != 200:
+                            continue
+                        parsed = _parse_html(resp.text)
+                        if parsed:
+                            parsed["url"] = _BASE + slug
+                            parsed["slug"] = slug
+                            break
+                    except (httpx.TimeoutException, httpx.RequestError) as exc:
+                        logger.debug("isitcracked fetch failed for %s: %s", slug, exc)
+        except Exception as exc:
+            logger.debug("isitcracked client error for %s: %s", slug, exc)
+            parsed = None
 
     with _lock:
         _slug_cache[slug] = (time.time(), dict(parsed) if parsed else {})

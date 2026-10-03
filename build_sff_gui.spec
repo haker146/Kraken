@@ -105,10 +105,19 @@ if win10toast_data:
 from PyInstaller.utils.hooks import collect_data_files
 datas.extend(collect_data_files("rich", include_py_files=False))
 
+python_dll_dir = os.path.join(sys.base_prefix, 'DLLs')
+libcrypto = os.path.join(python_dll_dir, 'libcrypto-3.dll')
+libssl = os.path.join(python_dll_dir, 'libssl-3.dll')
+binaries = []
+if os.path.exists(libcrypto):
+    binaries.append((libcrypto, '.'))
+if os.path.exists(libssl):
+    binaries.append((libssl, '.'))
+
 a = Analysis(
     ['Main_gui.py'],
     pathex=[spec_root],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=[
         'PyQt6',
@@ -136,6 +145,7 @@ a = Analysis(
         'steam',
         'steam.client',
         'gevent',
+        'eventemitter',
         'sff.manifest.collections',
         'sff.manifest.workshop_tracker',
         'psutil',

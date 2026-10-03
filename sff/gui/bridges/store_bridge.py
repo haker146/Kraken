@@ -1902,7 +1902,8 @@ def _bridge_suggest_store_games(bridge, query):
     try:
         from sff.game_list_fallback import get_app_name, suggest_titles
     except Exception:
-        return json.dumps([])
+        get_app_name = lambda _aid: ""
+        suggest_titles = lambda *args, **kwargs: []
 
     rows = []
     seen = set()
@@ -1917,7 +1918,7 @@ def _bridge_suggest_store_games(bridge, query):
         label = str(name or "").strip() or get_app_name(aid) or f"App {aid}"
         seen.add(aid)
         rows.append({
-            "app_id": aid,
+            "app_id": str(aid),
             "name": label,
             "capsule_url": capsule or (
                 "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/"
@@ -1930,7 +1931,7 @@ def _bridge_suggest_store_games(bridge, query):
 
     queries = _alias_expanded_queries(q) or [q]
     try:
-        hits = suggest_titles(queries[:4], limit=8) or []
+        hits = suggest_titles(queries[:4], limit=12) or []
     except Exception:
         hits = []
     scored = []
@@ -1946,9 +1947,28 @@ def _bridge_suggest_store_games(bridge, query):
     scored.sort(key=lambda item: item[0])
     for _score, game in scored:
         _add(game.get("app_id"), game.get("name"), game.get("capsule_url") or "")
-        if len(rows) >= 8:
+        if len(rows) >= 6:
             break
-    return json.dumps(rows[:8])
+
+    if len(rows) < 6:
+        q_norm = _normalize_for_search(q)
+        apps = _load_steam_applist() or []
+        extra_scored = []
+        for a in apps:
+            aid = a.get("appid")
+            name = a.get("name", "")
+            if not aid or int(aid) in seen:
+                continue
+            score = _store_search_score(q_norm, name, aid)
+            if score[0] < 99:
+                extra_scored.append((score, a))
+        extra_scored.sort(key=lambda item: item[0])
+        for _score, a in extra_scored:
+            _add(a.get("appid"), a.get("name"))
+            if len(rows) >= 6:
+                break
+
+    return json.dumps(rows[:6])
 
 
 def _bridge_get_app_summaries(bridge, ids_json):
@@ -2143,6 +2163,9 @@ def _bridge_get_store_game_details(bridge, app_id, language=""):
                 "crack_status": crack.get("status") or "",
                 "crack_url": crack.get("url") or "",
                 "crack_days": crack.get("days") or "",
+                "crack_date": crack.get("crack_date") or "",
+                "scene_group": crack.get("scene_group") or "",
+                "crack_release_date": crack.get("release_date") or "",
                 "review_label": reviews.get("review_label") or "",
                 "review_count": reviews.get("review_count") or 0,
                 "review_percent": reviews.get("review_percent") or 0,
@@ -2293,4 +2316,41 @@ def _bridge_set_whats_new_seen(bridge):
     from sff.core.structs import Settings
     set_setting(Settings.KRAKEN_WHATS_NEW_1_0, True)
     return True
+
+
+def _bridge_get_search_suggestions(bridge, query, limit=6):
+    """Returns top matching search suggestions for fast dropdown UI."""
+    if not query or not query.strip():
+        return json.dumps([])
+    q_norm = _normalize_for_search(query)
+    if not q_norm:
+        return json.dumps([])
+    apps = _load_steam_applist()
+    if not apps:
+        return json.dumps([])
+
+    scored = []
+    for a in apps:
+        name = a.get("name", "")
+        appid = a.get("appid")
+        if not name or not appid:
+            continue
+        score = _store_search_score(q_norm, name, appid)
+        if score[0] < 99:
+            scored.append((score, a))
+
+    scored.sort(key=lambda x: x[0])
+    top = scored[:limit]
+
+    out = []
+    for _, a in top:
+        aid = str(a.get("appid"))
+        name = a.get("name", f"App {aid}")
+        out.append({
+            "app_id": aid,
+            "name": name,
+            "image_url": f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/capsule_184x69.jpg",
+            "header_url": f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/header.jpg",
+        })
+    return json.dumps(out)
 

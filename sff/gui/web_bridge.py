@@ -1047,13 +1047,52 @@ class WebBridge(QObject):
             except Exception as e:
                 logger.warning("install_lua_to_steam failed: %s", e)
 
-            # Step 7: write ACF + patch workshop ACF
+            # Step 7: download & stage manifests into depotcache
             self.download_progress.emit(json.dumps({
-                "app_id": app_id, "status": "Writing ACF files", "progress": 70
+                "app_id": app_id, "status": "Downloading manifests...", "progress": 70
+            }))
+            manifest_map = {}
+            buildid = "0"
+            total_size = 0
+            try:
+                from sff.network.steam_client import create_provider_for_current_thread
+                from sff.manifest.downloader import ManifestDownloader
+                provider = create_provider_for_current_thread()
+                downloader = ManifestDownloader(
+                    provider=provider,
+                    steam_path=steam_path,
+                    use_hubcap=(selected_source == LuaEndpoint.HUBCAP),
+                )
+                manifest_map = downloader.get_manifest_ids(parsed, auto=True)
+                downloader.download_manifests_parallel(parsed, auto_manifest=True, manifest_override=manifest_map)
+
+                # Retrieve buildid and calculate game size from Steam app info
+                if provider:
+                    try:
+                        app_info = provider.get_single_app_info(int(app_id), quick=True)
+                        if app_info:
+                            buildid = str(
+                                app_info.get("depots", {})
+                                .get("branches", {})
+                                .get("public", {})
+                                .get("buildid", "0")
+                            )
+                            depots_info = app_info.get("depots", {})
+                            for did in manifest_map.keys():
+                                d_meta = depots_info.get(str(did), {})
+                                total_size += int(d_meta.get("maxsize", 0) or 0)
+                    except Exception as ie:
+                        logger.debug("Could not resolve buildid or size from Steam app info: %s", ie)
+            except Exception as e:
+                logger.warning("Manifest download failed: %s", e)
+
+            # Step 8: write ACF + patch workshop ACF
+            self.download_progress.emit(json.dumps({
+                "app_id": app_id, "status": "Writing ACF files", "progress": 80
             }))
             acf_writer = ACFWriter(lib_path)
             try:
-                acf_writer.write_acf(parsed)
+                acf_writer.write_acf(parsed, manifest_override=manifest_map, buildid=buildid, size_on_disk=total_size)
             except Exception as e:
                 logger.warning("write_acf failed: %s", e)
             try:
@@ -1062,19 +1101,14 @@ class WebBridge(QObject):
             except Exception as e:
                 logger.warning("patch_workshop_acf failed: %s", e)
 
-            # Step 8: register in libraryfolders.vdf
+            # Step 9: register in libraryfolders.vdf
             self.download_progress.emit(json.dumps({
-                "app_id": app_id, "status": "Registering in library", "progress": 80
+                "app_id": app_id, "status": "Registering in library", "progress": 90
             }))
             try:
                 ensure_library_has_app(steam_path, lib_path, app_id)
             except Exception as e:
                 logger.warning("ensure_library_has_app failed: %s", e)
-
-            # Step 9: skip manifest download — Lua + depotcache already seeded.
-            # ManifestDownloader would trigger a 20-45s steam_client login that
-            # freezes the UI. The acf_writer + ensure_library_has_app above
-            # already registered everything Steam needs.
 
             # Step 10: track in download manager
             self.download_progress.emit(json.dumps({

@@ -9,12 +9,14 @@ import {
   ShieldCheck, ShieldOff, Package, Clock, HardDrive,
   ChevronLeft, ChevronRight, RefreshCw, CheckSquare, Square, Info,
   Zap, Calendar, User, Tag, AlertTriangle, CheckCircle,
-  ArrowDownToLine, ExternalLink, Loader2, Maximize2, X
+  ArrowDownToLine, ExternalLink, Loader2, Maximize2, X, Volume2, VolumeX
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useCrackDB } from '../hooks/useCrackDB';
 import { useSteamDetails } from '../hooks/useSteamDetails';
 import CrackPanel from '../components/CrackPanel';
+import DownloadSourceModal from '../components/DownloadSourceModal';
+import CrackVersionModal from '../components/CrackVersionModal';
 import './GameHub.css';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -22,36 +24,111 @@ const heroImg   = (id) => `https://shared.akamai.steamstatic.com/store_item_asse
 const headerImg = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/header.jpg`;
 const libImg    = (id) => `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${id}/library_600x900.jpg`;
 
-const DRM_ICONS = {
-  'denuvo': 'https://crackrelease.com/wp-content/uploads/2025/09/Denuvo-Anti-Tamper-drm-icon.png',
-  'steam': 'https://crackrelease.com/wp-content/uploads/2025/09/Steamworks-Steam-DRM-icon.png',
-  'uplay': 'https://crackrelease.com/wp-content/uploads/2025/09/Ubisoft-Connect-Uplay-DRM-icon.png',
-  'ubisoft': 'https://crackrelease.com/wp-content/uploads/2025/09/Ubisoft-Connect-Uplay-DRM-icon.png',
-  'ea': 'https://crackrelease.com/wp-content/uploads/2025/09/Origin-EA-App-DRM-icon.png',
-  'origin': 'https://crackrelease.com/wp-content/uploads/2025/09/Origin-EA-App-DRM-icon.png',
-  'rockstar': 'https://crackrelease.com/wp-content/uploads/2025/09/Rockstar-Games-Launcher-DRM-icon.png',
-  'epic': 'https://crackrelease.com/wp-content/uploads/2025/09/Epic-Online-Services-Epic-Games-Store-DRM-icon.png',
-  'battle.net': 'https://crackrelease.com/wp-content/uploads/2025/09/Battle.net-DRM-icon.png',
-};
+const SteamIcon = ({size=14}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M11.979 0C5.353 0 0 5.373 0 12c0 4.966 3.018 9.223 7.37 11.015l3.208-4.662c-.176-.058-.337-.142-.486-.252L6.155 19.34a7.02 7.02 0 0 1 1.704-9.356 7.014 7.014 0 0 1 9.421 1.134l3.77-1.48c.026-.145.045-.292.045-.445 0-2.316-1.879-4.195-4.195-4.195-2.315 0-4.195 1.88-4.195 4.195 0 .265.029.52.078.77l-2.42 2.87c-.426-.192-.9-.302-1.398-.302-1.815 0-3.286 1.47-3.286 3.286s1.47 3.286 3.286 3.286 3.286-1.471 3.286-3.286c0-.348-.06-.682-.165-.994l2.493-2.956c.148.017.296.027.445.027 1.183 0 2.247-.492 3.01-1.282l3.775 1.482A11.967 11.967 0 0 0 12 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm-3.036 17.653c-.93 0-1.685-.755-1.685-1.685s.755-1.685 1.685-1.685 1.685.755 1.685 1.685-.755 1.685-1.685 1.685z"/></svg>;
+const EpicIcon = ({size=14}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M12.002 0C5.372 0 0 5.372 0 12s5.372 12 12.002 12 12-5.373 12-12S18.632 0 12.002 0zm6.096 17.151h-3.418v-5.264c0-.707-.442-1.077-1.127-1.077-.732 0-1.205.418-1.205 1.137v5.204H8.931V7.917h3.417v1.895c.571-.861 1.636-1.168 2.656-1.168 1.942 0 3.094 1.258 3.094 3.324v5.183z"/></svg>;
+const UplayIcon = ({size=14}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm0 4.195c4.31 0 7.805 3.495 7.805 7.805 0 4.31-3.495 7.805-7.805 7.805-4.31 0-7.805-3.495-7.805-7.805 0-4.31 3.495-7.805 7.805-7.805zm0 1.95a5.855 5.855 0 1 0 0 11.71 5.855 5.855 0 0 0 0-11.71z"/></svg>; // Placeholder simple circle for uplay
+const DenuvoIcon = ({size=14}) => <ShieldAlert size={size} />;
 
-function getDrmIcon(drmStr) {
-  if (!drmStr) return null;
+function getDrmIcons(drmStr) {
+  if (!drmStr) return [];
   const s = drmStr.toLowerCase();
-  for (const [key, url] of Object.entries(DRM_ICONS)) {
-    if (s.includes(key)) return url;
+  const icons = [];
+  if (s.includes('denuvo')) icons.push({ id: 'denuvo', icon: <DenuvoIcon size={12} /> });
+  if (s.includes('steam')) icons.push({ id: 'steam', icon: <SteamIcon size={12} /> });
+  if (s.includes('uplay') || s.includes('ubisoft')) icons.push({ id: 'uplay', icon: <UplayIcon size={12} /> });
+  if (s.includes('epic')) icons.push({ id: 'epic', icon: <EpicIcon size={12} /> });
+  if (s.includes('ea') || s.includes('origin')) icons.push({ id: 'ea', icon: <ShieldAlert size={12} /> });
+  if (s.includes('rockstar')) icons.push({ id: 'rockstar', icon: <ShieldAlert size={12} /> });
+  
+  if (icons.length === 0 && drmStr !== 'None') {
+    icons.push({ id: 'unknown', icon: <ShieldAlert size={12} /> });
   }
-  return null;
+  return icons;
+}
+
+// ── Video Player overlay ──────────────────────────────────────────────────────
+function TrailerPlayer({ movies, onClose }) {
+  const videoRef = useRef(null);
+  const [muted, setMuted] = useState(false);
+
+  // Pick the best mp4 URL from Steam movies array
+  const url = React.useMemo(() => {
+    for (const movie of movies || []) {
+      const urls = movie.mp4 || movie.webm || movie.urls || {};
+      // Steam API returns { 480: url, max: url }
+      const max = urls.max || urls[Object.keys(urls).sort().pop()];
+      if (max) return max;
+    }
+    return null;
+  }, [movies]);
+
+  if (!url) return null;
+
+  return (
+    <motion.div
+      className="gh-trailer-overlay"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="gh-trailer-wrap"
+        initial={{ scale: 0.94, y: 16 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.94, y: 8 }}
+        onClick={e => e.stopPropagation()}
+      >
+        <button className="gh-trailer-close" onClick={onClose}><X size={18} /></button>
+        <button
+          className="gh-trailer-mute"
+          onClick={() => {
+            if (videoRef.current) videoRef.current.muted = !videoRef.current.muted;
+            setMuted(m => !m);
+          }}
+        >
+          {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+        </button>
+        <video
+          ref={videoRef}
+          src={url}
+          className="gh-trailer-video"
+          autoPlay
+          controls
+          controlsList="nodownload"
+        />
+      </motion.div>
+    </motion.div>
+  );
 }
 
 // ── Hero Slideshow Component ──────────────────────────────────────────────────
-function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
+function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, movies, onBack }) {
   const [idx, setIdx] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef(null);
 
-  const list = screenshots && screenshots.length > 0
-    ? screenshots.map(s => s.path_full)
+  const hasTrailer = movies && movies.length > 0;
+
+  const normalizeUrl = (s) => {
+    if (!s) return '';
+    if (typeof s === 'string') return s;
+    return s.path_full || s.path_thumbnail || s.url || '';
+  };
+  const normalizeThumb = (s) => {
+    if (!s) return '';
+    if (typeof s === 'string') return s;
+    return s.path_thumbnail || s.path_full || s.url || '';
+  };
+
+  const rawList = (screenshots && screenshots.length > 0)
+    ? screenshots.map(normalizeUrl).filter(Boolean)
+    : [];
+
+  const list = rawList.length > 0
+    ? rawList
     : [
         `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`,
         `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`
@@ -65,13 +142,24 @@ function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
     if (list.length <= 1 || isPaused) return;
     timerRef.current = setInterval(() => {
       setIdx(i => (i + 1) % list.length);
-    }, 5500);
+    }, 6000);
     return () => clearInterval(timerRef.current);
   }, [list.length, isPaused]);
 
+  useEffect(() => { setIdx(0); }, [appId]);
+
+  // Keyboard navigation for screenshots and lightbox
   useEffect(() => {
-    setIdx(0);
-  }, [appId]);
+    const handleKeyDown = (e) => {
+      if (lightbox) {
+        if (e.key === 'ArrowLeft') go(-1);
+        if (e.key === 'ArrowRight') go(1);
+        if (e.key === 'Escape') setLightbox(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightbox, go]);
 
   const curSrc = list[idx] || list[0];
 
@@ -88,13 +176,14 @@ function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
           className="gh-hero-slide-img"
           src={curSrc}
           alt={activeGame.name}
-          initial={{ opacity: 0, scale: 1.02 }}
+          initial={{ opacity: 0, scale: 1.01 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.45 }}
+          transition={{ duration: 0.35 }}
           onError={(e) => {
-            if (e.target.src !== `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`) {
-              e.target.src = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
+            const fallback = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
+            if (e.target.src !== fallback) {
+              e.target.src = fallback;
             }
           }}
         />
@@ -107,152 +196,93 @@ function HeroSlideshow({ appId, activeGame, crackInfo, screenshots, onBack }) {
         <ArrowLeft size={14} /> Back
       </button>
 
-      {/* Hero Prev/Next navigation arrows */}
+      {/* Watch trailer button */}
+      {hasTrailer && (
+        <button className="gh-trailer-btn" onClick={() => setShowTrailer(true)}>
+          <Play size={14} className="gh-trailer-btn-icon" fill="currentColor" />
+          Watch Trailer
+        </button>
+      )}
+
+      {/* Prev/Next arrows */}
       {list.length > 1 && (
         <>
-          <button
-            className="gh-hero-arrow left"
-            onClick={(e) => { e.stopPropagation(); go(-1); }}
-            title="Poprzedni zrzut ekranu"
-          >
-            <ChevronLeft size={22} />
+          <button className="gh-hero-arrow left" onClick={(e) => { e.stopPropagation(); go(-1); }} title="Previous Screenshot">
+            <ChevronLeft size={24} />
           </button>
-          <button
-            className="gh-hero-arrow right"
-            onClick={(e) => { e.stopPropagation(); go(1); }}
-            title="Następny zrzut ekranu"
-          >
-            <ChevronRight size={22} />
+          <button className="gh-hero-arrow right" onClick={(e) => { e.stopPropagation(); go(1); }} title="Next Screenshot">
+            <ChevronRight size={24} />
           </button>
         </>
       )}
 
-      {/* Hero content (Title and meta badges only - no game header icon) */}
+      {/* Hero content */}
       <div className="gh-hero-content">
         <h1 className="gh-hero-title">{activeGame.name}</h1>
-
         <div className="gh-hero-meta">
           {(() => {
-            const drmIcon = getDrmIcon(crackInfo.drm);
-            if (drmIcon) {
-              return (
-                <span className={`gh-drm-badge with-icon ${crackInfo.cracked ? 'cracked' : 'locked'}`} title={crackInfo.drm}>
-                  <img src={drmIcon} alt={crackInfo.drm} className="gh-drm-icon-img" />
-                  {crackInfo.cracked ? 'Cracked' : 'Protected'}
-                </span>
-              );
-            }
+            const drmIcons = getDrmIcons(crackInfo.drm);
             if (crackInfo.drm === 'None') {
-              return (
-                <span className="gh-drm-badge clean">
-                  <ShieldOff size={12} /> DRM-Free
-                </span>
-              );
+              return (<span className="gh-drm-badge clean"><ShieldOff size={12} /> DRM-Free</span>);
             }
-            if (crackInfo.drm === 'Steam DRM') {
-              return (
-                <span className="gh-drm-badge steam">
-                  <ShieldCheck size={12} /> Steam DRM
-                </span>
-              );
-            }
-            if (crackInfo.cracked) {
-              return (
-                <span className="gh-drm-badge cracked">
-                  <ShieldCheck size={12} /> {crackInfo.drm} — Cracked
-                </span>
-              );
-            }
+            
             return (
-              <span className="gh-drm-badge locked">
-                <ShieldAlert size={12} /> {crackInfo.drm || 'Unknown DRM'}
+              <span className={`gh-drm-badge with-icon ${crackInfo.cracked ? 'cracked' : 'locked'}`} title={crackInfo.drm}>
+                <span className="drm-icons-row" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  {drmIcons.map(item => <span key={item.id} title={item.id}>{item.icon}</span>)}
+                </span>
+                {crackInfo.cracked 
+                  ? `Cracked${crackInfo.crack_source ? ` (${crackInfo.crack_source})` : ''} ${crackInfo.crack_days ? `[${crackInfo.crack_days}]` : ''}` 
+                  : `${crackInfo.drm || 'Protected'}`}
               </span>
             );
           })()}
-
-          {activeGame.size && activeGame.size !== '—' && (
-            <span className="gh-hero-stat">
-              <HardDrive size={11} /> {activeGame.size}
-            </span>
-          )}
-          {activeGame.playtime && activeGame.playtime !== '—' && (
-            <span className="gh-hero-stat">
-              <Clock size={11} /> {activeGame.playtime}
-            </span>
-          )}
+          {activeGame.size && activeGame.size !== '—' && (<span className="gh-hero-stat"><HardDrive size={11} /> {activeGame.size}</span>)}
+          {activeGame.playtime && activeGame.playtime !== '—' && (<span className="gh-hero-stat"><Clock size={11} /> {activeGame.playtime}</span>)}
         </div>
       </div>
 
-      {/* Hero bottom-right controls (thumbnails + counter + fullscreen) */}
+      {/* Thumbnail strip + counter */}
       {list.length > 1 && (
         <div className="gh-hero-controls">
-          {screenshots && screenshots.length > 0 && (
-            <div className="gh-hero-strip">
-              {screenshots.slice(0, 6).map((ss, i) => (
-                <button
-                  key={i}
-                  className={`gh-hero-thumb ${i === idx ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIdx(i);
-                  }}
-                  title={`Zrzut ${i + 1}`}
-                >
-                  <img src={ss.path_thumbnail} alt="" loading="lazy" />
-                </button>
-              ))}
-              {screenshots.length > 6 && (
-                <span className="gh-hero-more-count">+{screenshots.length - 6}</span>
-              )}
-            </div>
-          )}
-
+          <div className="gh-hero-strip">
+            {list.slice(0, 7).map((ssUrl, i) => (
+              <button
+                key={i}
+                className={`gh-hero-thumb ${i === idx ? 'active' : ''}`}
+                onClick={(e) => { e.stopPropagation(); setIdx(i); }}
+              >
+                <img src={ssUrl} alt="" loading="lazy" />
+              </button>
+            ))}
+            {list.length > 7 && (
+              <span className="gh-hero-more-count">+{list.length - 7}</span>
+            )}
+          </div>
           <div className="gh-hero-counter-wrap">
             <span className="gh-hero-counter">{idx + 1} / {list.length}</span>
-            <button
-              className="gh-hero-fullscreen"
-              onClick={() => setLightbox(true)}
-              title="Pełny ekran"
-            >
-              <Maximize2 size={13} />
+            <button className="gh-hero-fullscreen" onClick={() => setLightbox(true)} title="View Fullscreen">
+              <Maximize2 size={14} />
             </button>
           </div>
         </div>
       )}
 
-      {/* Lightbox full-res modal */}
+      {/* Lightbox */}
       <AnimatePresence>
         {lightbox && (
-          <motion.div
-            className="gh-ss-lightbox"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setLightbox(false)}
-          >
-            <button className="gh-ss-lb-close" onClick={() => setLightbox(false)}>
-              <X size={20} />
-            </button>
-            <button
-              className="gh-ss-lb-arrow left"
-              onClick={e => { e.stopPropagation(); go(-1); }}
-            >
-              <ChevronLeft size={28} />
-            </button>
-            <img
-              src={curSrc}
-              alt=""
-              className="gh-ss-lb-img"
-              onClick={e => e.stopPropagation()}
-            />
-            <button
-              className="gh-ss-lb-arrow right"
-              onClick={e => { e.stopPropagation(); go(1); }}
-            >
-              <ChevronRight size={28} />
-            </button>
+          <motion.div className="gh-ss-lightbox" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setLightbox(false)}>
+            <button className="gh-ss-lb-close" onClick={() => setLightbox(false)} title="Close (Esc)"><X size={22} /></button>
+            <button className="gh-ss-lb-arrow left" onClick={e => { e.stopPropagation(); go(-1); }}><ChevronLeft size={32} /></button>
+            <img src={curSrc} alt="" className="gh-ss-lb-img" onClick={e => e.stopPropagation()} />
+            <button className="gh-ss-lb-arrow right" onClick={e => { e.stopPropagation(); go(1); }}><ChevronRight size={32} /></button>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Trailer modal */}
+      <AnimatePresence>
+        {showTrailer && <TrailerPlayer movies={movies} onClose={() => setShowTrailer(false)} />}
       </AnimatePresence>
     </div>
   );
@@ -339,67 +369,61 @@ function DLCManager({ appId }) {
 }
 
 // ── Action Bar ────────────────────────────────────────────────────────────────
-function ActionBar({ game, crackInfo }) {
+function ActionBar({ game, crackInfo, onOpenDownloadModal }) {
   const [launching, setLaunching] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [dlProgress, setDlProgress] = useState(0);
   const isInstalled = !!game?.path;
 
   useEffect(() => {
-    if (!window.Bridge?.download_progress?.connect) return;
-    const handler = (jsonStr) => {
-      try {
-        const payload = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
-        if (payload.app_id === String(game?.app_id)) {
-          setDlProgress(payload.progress || 0);
-          if (payload.progress >= 100 || payload.status?.toLowerCase().includes('error') || payload.status?.toLowerCase().includes('failed')) {
-            setTimeout(() => setDownloading(false), 1500);
+    const setupDlHandler = () => {
+      if (!window.Bridge?.download_progress?.connect) return null;
+      const handler = (jsonStr) => {
+        try {
+          const payload = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+          if (payload.app_id === String(game?.app_id)) {
+            setDlProgress(payload.progress || 0);
+            if (payload.progress >= 100 || payload.status?.toLowerCase().includes('error') || payload.status?.toLowerCase().includes('failed')) {
+              setTimeout(() => setDownloading(false), 1500);
+            }
           }
+        } catch (e) {
+          console.error('Failed to parse download progress:', e);
         }
-      } catch (e) {
-        console.error("Failed to parse download progress:", e);
-      }
+      };
+      window.Bridge.download_progress.connect(handler);
+      return handler;
     };
-    window.Bridge.download_progress.connect(handler);
+    let h = null;
+    if (window.Bridge) {
+      h = setupDlHandler();
+    } else {
+      import('../lib/bridge').then(({ bridge }) =>
+        bridge.ready.then(() => { h = setupDlHandler(); })
+      );
+    }
     return () => {
-      try { window.Bridge.download_progress.disconnect(handler); } catch (e) {}
+      try { if (h && window.Bridge?.download_progress?.disconnect) window.Bridge.download_progress.disconnect(h); } catch (e) {}
     };
   }, [game?.app_id]);
 
   const handleLaunch = () => {
     setLaunching(true);
-    // Bridge call to launch game
-    if (window.Bridge?.launch_game) {
-      window.Bridge.launch_game(game.app_id);
-    }
+    if (window.Bridge?.launch_game) window.Bridge.launch_game(game.app_id);
     setTimeout(() => setLaunching(false), 2000);
-  };
-
-  const handleDownload = () => {
-    if (!window.Bridge?.download_game_fastest) return;
-    setDownloading(true);
-    setDlProgress(0);
-    window.Bridge.download_game_fastest(String(game.app_id));
   };
 
   return (
     <div className="gh-action-bar">
       {isInstalled ? (
-        <button
-          className="gh-btn-play"
-          onClick={handleLaunch}
-          disabled={launching}
-        >
-          {launching
-            ? <><Loader2 size={16} className="spin" /> Launching…</>
-            : <><Play size={16} /> Play</>
-          }
+        <button className="gh-btn-play" onClick={handleLaunch} disabled={launching}>
+          {launching ? <><Loader2 size={16} className="spin" /> Launching…</> : <><Play size={16} /> Play</>}
         </button>
       ) : (
         <div className="gh-dl-wrap">
           <button
             className="gh-btn-download"
-            onClick={handleDownload}
+            onClick={onOpenDownloadModal}
             disabled={downloading}
           >
             {downloading
@@ -419,10 +443,7 @@ function ActionBar({ game, crackInfo }) {
           )}
         </div>
       )}
-
-      <button className="gh-btn-secondary">
-        <Wrench size={14} /> Fix Tools
-      </button>
+      <button className="gh-btn-secondary"><Wrench size={14} /> Fix Tools</button>
     </div>
   );
 }
@@ -432,6 +453,8 @@ export default function GameHub() {
   const { activeGame, setActivePage } = useAppStore();
   const { lookupGame } = useCrackDB();
   const [tab, setTab] = useState('overview');
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [showCrackModal, setShowCrackModal] = useState(false);
 
   const appId = activeGame?.app_id;
   const { data: steamData, loading: steamLoading } = useSteamDetails(appId);
@@ -449,13 +472,21 @@ export default function GameHub() {
   };
 
   const screenshots = steamData?.screenshots ?? [];
-  const shortDesc   = steamData?.short_description ?? '';
-  const detailedHtml = steamData?.detailed_description ?? '';
-  const genres      = steamData?.genres?.map(g => g.description) ?? [];
+  const movies      = steamData?.movies ?? [];
+  const shortDesc   = steamData?.short_description || steamData?.short_desc || '';
+  const detailedHtml = steamData?.about_html || steamData?.about_the_game || steamData?.detailed_description || steamData?.detailed_html || '';
+  const genres      = Array.isArray(steamData?.genres)
+    ? steamData.genres.map(g => (typeof g === 'string' ? g : g.description || g.name || ''))
+    : (activeGame.tags || []);
   const developers  = steamData?.developers ?? [];
-  const releaseDate = steamData?.release_date?.date ?? '';
+  const releaseDate = (typeof steamData?.release_date === 'object' ? steamData?.release_date?.date : steamData?.release_date) || steamData?.crack_release_date || '';
   const metacritic  = steamData?.metacritic;
   const dlcCount    = steamData?.dlc?.length ?? DEMO_DLCS.length;
+
+  // Scene / crack information merged from backend & crackrelease
+  const sceneGroup = steamData?.scene_group || crackInfo?.crack_source;
+  const crackDate = steamData?.crack_date || crackInfo?.crack_date;
+  const crackDays = steamData?.crack_days || crackInfo?.crack_days;
 
   const TABS = [
     { id: 'overview', label: 'Overview' },
@@ -465,12 +496,36 @@ export default function GameHub() {
 
   return (
     <div className="game-hub">
+      {/* ── Crack version info modal (step 1 of 2 for non-Steam DRM) ── */}
+      {showCrackModal && (
+        <CrackVersionModal
+          appId={appId}
+          gameName={activeGame.name}
+          crackInfo={crackInfo}
+          onClose={() => setShowCrackModal(false)}
+          onProceed={() => {
+            setShowCrackModal(false);
+            setShowDownloadModal(true);
+          }}
+        />
+      )}
+
+      {/* ── Download source picker modal (step 2) ─────────────────── */}
+      {showDownloadModal && (
+        <DownloadSourceModal
+          appId={appId}
+          gameName={activeGame.name}
+          onClose={() => setShowDownloadModal(false)}
+        />
+      )}
+
       {/* ── Hero Slideshow Banner ─────────────────────────────────────── */}
       <HeroSlideshow
         appId={appId}
         activeGame={activeGame}
-        crackInfo={crackInfo}
+        crackInfo={{ ...crackInfo, crack_source: sceneGroup || crackInfo.crack_source, crack_days: crackDays }}
         screenshots={screenshots}
+        movies={movies}
         onBack={() => setActivePage('store')}
       />
 
@@ -482,26 +537,51 @@ export default function GameHub() {
             className="gh-cover"
             src={activeGame.cover_url || libImg(appId)}
             alt={activeGame.name}
-            onError={e => { e.target.src = libImg(appId); }}
+            onError={e => {
+              const fb1 = libImg(appId);
+              const fb2 = activeGame.image_url;
+              const fb3 = 'https://crackrelease.com/wp-content/uploads/2023/11/placeholder-image.jpg';
+              if (e.target.src === activeGame.cover_url) e.target.src = fb1;
+              else if (e.target.src === fb1 && fb2) e.target.src = fb2;
+              else if (e.target.src !== fb3) e.target.src = fb3;
+            }}
           />
 
-          <ActionBar game={activeGame} crackInfo={crackInfo} />
+          <ActionBar
+            game={activeGame}
+            crackInfo={crackInfo}
+            onOpenDownloadModal={() => {
+              // For non-standard DRM (Denuvo etc.) show crack info first
+              // For standard Steam DRM / DRM-Free, go straight to manifest picker
+              const skipCrackModal = crackInfo.is_standard_steam || crackInfo.drm === 'None';
+              if (skipCrackModal) {
+                setShowDownloadModal(true);
+              } else {
+                setShowCrackModal(true);
+              }
+            }}
+          />
 
           {/* Quick stats */}
           <div className="gh-quick-stats">
+            {sceneGroup && (
+              <div className="gh-qs-row">
+                <User size={11} /> <strong>Scene:</strong> {sceneGroup}
+              </div>
+            )}
+            {crackDays && (
+              <div className="gh-qs-row">
+                <Clock size={11} /> <strong>Cracked:</strong> {crackDays}
+              </div>
+            )}
+            {crackDate && (
+              <div className="gh-qs-row">
+                <Calendar size={11} /> <strong>Date:</strong> {crackDate}
+              </div>
+            )}
             {crackInfo.crack_version && (
               <div className="gh-qs-row">
                 <Tag size={11} /> Crack v{crackInfo.crack_version}
-              </div>
-            )}
-            {crackInfo.crack_source && (
-              <div className="gh-qs-row">
-                <User size={11} /> {crackInfo.crack_source}
-              </div>
-            )}
-            {crackInfo.crack_date && (
-              <div className="gh-qs-row">
-                <Calendar size={11} /> {crackInfo.crack_date}
               </div>
             )}
           </div>
@@ -544,7 +624,7 @@ export default function GameHub() {
                   <div className="gh-overview-header">
                     <h2 className="gh-game-title">{steamData?.name || activeGame.name}</h2>
                     <div className="gh-overview-meta">
-                      {genres.slice(0, 3).map(g => (
+                      {genres.slice(0, 4).map(g => (
                         <span key={g} className="gh-genre-tag">{g}</span>
                       ))}
                       {releaseDate && <span className="gh-release-date"><Calendar size={10} /> {releaseDate}</span>}
@@ -567,17 +647,6 @@ export default function GameHub() {
                   {/* Short description */}
                   {shortDesc && (
                     <p className="gh-short-desc">{shortDesc}</p>
-                  )}
-
-                  {/* Detailed description (Steam HTML) */}
-                  {detailedHtml && (
-                    <div className="gh-detailed-desc">
-                      <div className="gh-desc-label">About This Game</div>
-                      <div
-                        className="gh-desc-html"
-                        dangerouslySetInnerHTML={{ __html: detailedHtml }}
-                      />
-                    </div>
                   )}
 
                   {/* Quick info cards */}
@@ -610,13 +679,12 @@ export default function GameHub() {
                       value={`${dlcCount} ${dlcCount === 1 ? 'item' : 'items'}`}
                       accent="#38bdf8"
                     />
-                    {activeGame.path && (
+                    {sceneGroup && (
                       <InfoCard
-                        icon={<HardDrive size={15} />}
-                        label="Install Path"
-                        value={activeGame.path}
-                        accent="#fb923c"
-                        truncate
+                        icon={<User size={15} />}
+                        label="Scene Group"
+                        value={sceneGroup}
+                        accent="#a78bfa"
                       />
                     )}
                     <InfoCard
@@ -626,6 +694,23 @@ export default function GameHub() {
                       accent="#facc15"
                     />
                   </div>
+
+                  {/* Detailed description (Steam HTML) */}
+                  {detailedHtml ? (
+                    <div className="gh-detailed-desc">
+                      <div className="gh-desc-label">About This Game</div>
+                      <div
+                        className="gh-desc-html"
+                        dangerouslySetInnerHTML={{ __html: detailedHtml }}
+                      />
+                    </div>
+                  ) : (
+                    !steamLoading && (
+                      <div className="gh-desc-fallback">
+                        <p>{shortDesc || 'No detailed description available for this title.'}</p>
+                      </div>
+                    )
+                  )}
 
                   {crackInfo.notes && (
                     <div className="gh-note-block">

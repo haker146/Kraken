@@ -306,10 +306,11 @@
 /* ── Hero ────────────────────────────────────────────────────────────────── */
 .gh-hero {
   position: relative;
-  height: 360px;
+  height: 480px;
+  min-height: 440px;
   flex-shrink: 0;
   overflow: hidden;
-  background: var(--c-surface-1);
+  background: #0b0f19;
 }
 
 .gh-hero-slide-img {
@@ -329,14 +330,14 @@
     linear-gradient(
       to bottom,
       rgba(6, 8, 16, 0.55) 0%,
-      rgba(6, 8, 16, 0.1) 35%,
-      rgba(6, 8, 16, 0.8) 75%,
+      rgba(6, 8, 16, 0.08) 35%,
+      rgba(6, 8, 16, 0.75) 70%,
       var(--c-bg) 100%
     ),
     linear-gradient(
       to right,
-      rgba(6, 8, 16, 0.7) 0%,
-      rgba(6, 8, 16, 0.3) 45%,
+      rgba(6, 8, 16, 0.75) 0%,
+      rgba(6, 8, 16, 0.35) 45%,
       transparent 70%
     );
   z-index: 1;
@@ -354,10 +355,10 @@
   font-size: 12px;
   font-weight: 600;
   color: #fff;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 99px;
   cursor: pointer;
   transition: all 0.18s ease;
@@ -374,30 +375,30 @@
   top: 50%;
   transform: translateY(-50%);
   z-index: 4;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  opacity: 0;
+  opacity: 0.65;
 }
 .gh-hero:hover .gh-hero-arrow {
   opacity: 1;
 }
 .gh-hero-arrow:hover {
-  background: rgba(0, 0, 0, 0.88);
+  background: rgba(0, 0, 0, 0.9);
   border-color: var(--c-accent);
   transform: translateY(-50%) scale(1.08);
 }
-.gh-hero-arrow.left { left: 18px; }
-.gh-hero-arrow.right { right: 18px; }
+.gh-hero-arrow.left { left: 20px; }
+.gh-hero-arrow.right { right: 20px; }
 
 /* Hero title & meta */
 .gh-hero-content {
@@ -406,10 +407,10 @@
   left: 0;
   right: 0;
   z-index: 3;
-  padding: 0 28px 22px;
+  padding: 0 28px 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   pointer-events: none;
 }
 .gh-hero-content > * {
@@ -417,57 +418,59 @@
 }
 
 .gh-hero-title {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 800;
   letter-spacing: -0.025em;
   color: #ffffff;
   margin: 0;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.95);
-  max-width: 65%;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.95);
+  max-width: 60%;
   line-height: 1.15;
 }
 
 /* Hero Controls at bottom-right */
 .gh-hero-controls {
   position: absolute;
-  bottom: 22px;
-  right: 24px;
+  bottom: 24px;
+  right: 28px;
   z-index: 4;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .gh-hero-strip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(12px);
-  padding: 4px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .gh-hero-thumb {
-  width: 56px;
-  height: 32px;
-  border-radius: 4px;
+  width: 76px;
+  height: 44px;
+  border-radius: 6px;
   overflow: hidden;
-  border: 1.5px solid transparent;
-  opacity: 0.5;
-  transition: all 0.15s ease;
+  border: 2px solid transparent;
+  opacity: 0.55;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   padding: 0;
   cursor: pointer;
   background: #000;
 }
 .gh-hero-thumb:hover {
-  opacity: 0.85;
+  opacity: 0.9;
+  transform: translateY(-2px);
 }
 .gh-hero-thumb.active {
   opacity: 1;
   border-color: var(--c-accent);
-  box-shadow: 0 0 8px rgba(124, 58, 237, 0.55);
+  box-shadow: 0 0 12px rgba(124, 58, 237, 0.65);
+  transform: translateY(-2px) scale(1.04);
 }
 .gh-hero-thumb img {
   width: 100%;
@@ -477,47 +480,48 @@
 }
 
 .gh-hero-more-count {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--t-muted);
-  padding: 0 6px;
+  padding: 0 8px;
 }
 
 .gh-hero-counter-wrap {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .gh-hero-counter {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.9);
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
-  padding: 5px 11px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  padding: 6px 14px;
   border-radius: 99px;
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .gh-hero-fullscreen {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: rgba(255, 255, 255, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.18s ease;
 }
 .gh-hero-fullscreen:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.25);
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.08);
 }
 
 .gh-steam-fetching {
@@ -738,6 +742,113 @@
   letter-spacing: -0.02em;
 }
 
+/* ── Game description (Steam style) ───────────────────────────────────────── */
+.gh-short-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 3px solid var(--c-accent);
+  padding: 12px 16px;
+  border-radius: 0 8px 8px 0;
+  margin: 0;
+}
+
+.gh-detailed-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 20px 24px;
+}
+
+.gh-desc-label {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gh-desc-html {
+  font-size: 14px;
+  line-height: 1.75;
+  color: #cbd5e1;
+}
+
+.gh-desc-html h1,
+.gh-desc-html h2,
+.gh-desc-html h3,
+.gh-desc-html h4 {
+  color: #ffffff;
+  font-weight: 700;
+  margin-top: 24px;
+  margin-bottom: 10px;
+}
+
+.gh-desc-html h2 {
+  font-size: 18px;
+  color: #38bdf8;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
+  padding-bottom: 6px;
+}
+
+.gh-desc-html h3 {
+  font-size: 16px;
+  color: #a78bfa;
+}
+
+.gh-desc-html p {
+  margin-bottom: 14px;
+}
+
+.gh-desc-html ul {
+  margin: 10px 0 16px 22px;
+  padding: 0;
+}
+
+.gh-desc-html li {
+  margin-bottom: 6px;
+}
+
+.gh-desc-html strong,
+.gh-desc-html b {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.gh-desc-html img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 16px 0;
+  display: block;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gh-desc-html a {
+  color: #38bdf8;
+  text-decoration: none;
+}
+.gh-desc-html a:hover {
+  text-decoration: underline;
+}
+
+.gh-desc-fallback {
+  padding: 16px 20px;
+  background: var(--c-surface-1);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  color: var(--t-muted);
+  font-size: 13px;
+}
+
 .gh-info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -926,3 +1037,99 @@
 /* ── Spin animation ──────────────────────────────────────────────────────── */
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Sidebar cover — enforce 2:3 portrait ratio ──────────────────────────── */
+.gh-cover {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Watch Trailer button on hero ─────────────────────────────────────────── */
+.gh-trailer-btn {
+  position: absolute;
+  top: 64px;
+  left: 18px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: 99px;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.18s, transform 0.15s;
+}
+.gh-trailer-btn:hover { background: rgba(255,255,255,0.15); transform: translateY(-1px); }
+.gh-trailer-btn-icon { color: #fbbf24; }
+
+/* ── Trailer video overlay ────────────────────────────────────────────────── */
+.gh-trailer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gh-trailer-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  aspect-ratio: 16/9;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 40px 100px rgba(0,0,0,0.9);
+}
+
+.gh-trailer-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.gh-trailer-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.gh-trailer-close:hover { background: rgba(255,255,255,0.2); }
+
+.gh-trailer-mute {
+  position: absolute;
+  top: 12px;
+  right: 56px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+.gh-trailer-mute:hover { background: rgba(255,255,255,0.2); }
+

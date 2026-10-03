@@ -250,7 +250,10 @@ def _download_from_endpoint(dest, app_id, source, steam_path=None, request_updat
     if source == LuaEndpoint.OUREVERYDAY:
         return get_oureverday(dest, app_id)
     if source == LuaEndpoint.HUBCAP:
-        return get_hubcap(dest, app_id, depotcache=_depotcache_for(steam_path))
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        saved_key = get_setting(Settings.HUBCAP_KEY)
+        return get_hubcap(dest, app_id, depotcache=_depotcache_for(steam_path), hubcap_key=saved_key)
     if source == LuaEndpoint.RYUU:
         return get_ryuu(
             dest,
