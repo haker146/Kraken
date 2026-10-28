@@ -547,169 +547,336 @@ def _bridge_get_bundled_tool_path(bridge, tool_name: str) -> str:
     p = bridge._get_bundled_tool_path(tool_name)
     return str(p) if p else ""
 
-def _bridge_check_game_update(bridge, app_id):
-    """Compare installed ACF buildid against Steam CM public buildid.
-    If Steam CM is newer: download updated manifests and patch the ACF.
-    Emits task_finished with task='update_check'."""
-    def _do():
-        try:
-            from pathlib import Path as _Path
-            from sff.core.storage.vdf import get_steam_libs, vdf_load
-            from sff.lua.writer import ACFWriter
-            from sff.manifest.downloader import ManifestDownloader
-            from sff.lua.manager import LuaManager, LuaChoice, write_manifest_pins_to_lua
-            from sff.network.steam_client import create_provider_for_current_thread
-            from sff.core.storage.settings import get_setting
-            from sff.core.structs import OSType, Settings
-            from sff.steam_tools_compat import install_lua_to_steam
+def _saved_lua_path_for_app(app_id, steam_path=None):
+    """Prefer the portable/data saved_lua copy, then cwd, then Steam stplug-in."""
+    from pathlib import Path as _Path
+    from sff.core.utils import root_folder
+    name = f"{app_id}.lua"
+    candidates = [
+        root_folder(outside_internal=True) / "saved_lua" / name,
+        _Path.cwd() / "saved_lua" / name,
+    ]
+    if steam_path:
+        steam_path = _Path(steam_path)
+        candidates.extend([
+            steam_path / "config" / "stplug-in" / name,
+            steam_path / "config" / name,
+        ])
+    for path in candidates:
+        if path.is_file():
+            return path
+    dest = candidates[0]
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return dest
 
-            steam_libs = get_steam_libs(bridge._steam_path) if bridge._steam_path else []
-            acf_path = None
-            lib_path = None
-            for lib in steam_libs:
-                candidate = lib / "steamapps" / f"appmanifest_{app_id}.acf"
-                if candidate.exists():
-                    acf_path = candidate
-                    lib_path = lib
-                    break
 
-            if acf_path is None:
-                return {"found": False, "error": f"ACF not found for App ID {app_id}"}
+def _perform_game_manifest_update(bridge, app_id):
+    """Download new manifests, pin Lua, leave ACF in a state Steam can download.
 
-            acf_data = vdf_load(acf_path)
-            state = acf_data.get("AppState", {})
-            installed_buildid = str(state.get("buildid", "0")).strip()
-            game_name = str(state.get("name", "") or "").strip()
+    Steam's 'No internet connection' on an unlocked game is almost always
+    workshop NeedsDownload=1 or a fake-complete ACF (StateFlags=4, 0 bytes)
+    while files on disk still match the old build. This path:
+      1. refreshes Lua + depot keys
+      2. stages .manifest files into depotcache
+      3. pins setManifestid
+      4. clears workshop NeedsDownload
+      5. marks the ACF as UpdateRequired so Steam actually fetches files
+    """
+    from pathlib import Path as _Path
+    from types import SimpleNamespace
+    import shutil
+    from sff.core.storage.vdf import get_steam_libs, vdf_load, vdf_dump
+    from sff.lua.writer import ACFWriter, ConfigVDFWriter
+    from sff.manifest.downloader import ManifestDownloader
+    from sff.lua.manager import LuaManager, LuaChoice, write_manifest_pins_to_lua
+    from sff.network.steam_client import create_provider_for_current_thread
+    from sff.core.storage.settings import get_setting
+    from sff.core.structs import OSType, Settings, LuaEndpoint
+    from sff.steam_tools_compat import install_lua_to_steam, sync_manifest_to_config_depotcache
 
+    steam_libs = get_steam_libs(bridge._steam_path) if bridge._steam_path else []
+    acf_path = None
+    lib_path = None
+    for lib in steam_libs:
+        candidate = lib / "steamapps" / f"appmanifest_{app_id}.acf"
+        if candidate.exists():
+            acf_path = candidate
+            lib_path = lib
+            break
+
+    if acf_path is None:
+        return {"found": False, "error": f"ACF not found for App ID {app_id}"}
+
+    acf_data = vdf_load(acf_path)
+    state = acf_data.get("AppState", {})
+    installed_buildid = str(state.get("buildid", "0")).strip()
+    game_name = str(state.get("name", "") or "").strip()
+
+    try:
+        from sff.gui.web_bridge import _find_crack_entry, _pick_crack_fix
+        crack_entry = _find_crack_entry(game_name)
+    except Exception:
+        crack_entry = None
+    crack_bid = str(crack_entry.get("buildid", "") or "") if crack_entry else ""
+
+    provider = create_provider_for_current_thread()
+    app_data = provider.get_single_app_info(int(app_id))
+    cm_buildid = str(
+        app_data.get("depots", {})
+        .get("branches", {})
+        .get("public", {})
+        .get("buildid", "0")
+    ).strip()
+
+    def _with_crack(res):
+        if crack_entry:
+            res["crack"] = {
+                "available": True,
+                "buildid": crack_bid,
+                "match_installed": bool(crack_bid and installed_buildid == crack_bid),
+                "match_latest": bool(
+                    crack_bid and cm_buildid and cm_buildid != "0"
+                    and crack_bid == cm_buildid
+                ),
+                "fix": _pick_crack_fix(crack_entry, installed_buildid),
+                "source_crack": crack_entry.get("source_crack", [])[:1],
+            }
+        return res
+
+    if not cm_buildid or cm_buildid == "0":
+        return _with_crack({"found": True, "error": "Could not retrieve buildid from Steam CM"})
+
+    if installed_buildid == cm_buildid:
+        return _with_crack({
+            "found": True,
+            "up_to_date": True,
+            "installed_buildid": installed_buildid,
+            "cm_buildid": cm_buildid,
+        })
+
+    os_type = OSType.WINDOWS if sys.platform == "win32" else OSType.LINUX
+    lua_manager = LuaManager(os_type)
+    saved_lua_path = _saved_lua_path_for_app(app_id, bridge._steam_path)
+    if not saved_lua_path.exists() and bridge._steam_path:
+        stplug_lua = _Path(bridge._steam_path) / "config" / "stplug-in" / f"{app_id}.lua"
+        config_lua = _Path(bridge._steam_path) / "config" / f"{app_id}.lua"
+        src = stplug_lua if stplug_lua.exists() else (config_lua if config_lua.exists() else None)
+        if src:
+            saved_lua_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, saved_lua_path)
+
+    # Pull a fresh Lua so new depots from this build get addappid + keys.
+    try:
+        from sff.lua.choices import download_lua_direct
+        has_hubcap_key = bool(get_setting(Settings.HUBCAP_KEY))
+        sources = []
+        if has_hubcap_key:
+            sources.append(LuaEndpoint.HUBCAP)
+        sources.append(LuaEndpoint.OUREVERYDAY)
+        for src in sources:
             try:
-                from sff.gui.web_bridge import _find_crack_entry, _pick_crack_fix
-                crack_entry = _find_crack_entry(game_name)
-            except Exception:
-                crack_entry = None
-            crack_bid = str(crack_entry.get("buildid", "") or "") if crack_entry else ""
+                fresh = download_lua_direct(
+                    dest=saved_lua_path.parent,
+                    app_id=app_id,
+                    source=src,
+                    steam_path=bridge._steam_path,
+                    request_update=True,
+                )
+                if fresh and _Path(fresh).is_file():
+                    saved_lua_path = _Path(fresh)
+                    break
+            except Exception as lua_err:
+                logger.debug("lua refresh via %s failed: %s", src, lua_err)
+    except Exception as lua_err:
+        logger.debug("lua refresh skipped: %s", lua_err)
 
-            provider = create_provider_for_current_thread()
-            app_data = provider.get_single_app_info(int(app_id))
-            cm_buildid = str(
-                app_data.get("depots", {})
-                .get("branches", {})
-                .get("public", {})
-                .get("buildid", "0")
-            ).strip()
+    has_hubcap_key = bool(get_setting(Settings.HUBCAP_KEY))
+    downloader = ManifestDownloader(provider, bridge._steam_path, use_hubcap=has_hubcap_key)
+    depotcache = (_Path(bridge._steam_path) / "depotcache") if bridge._steam_path else None
+    if depotcache:
+        depotcache.mkdir(parents=True, exist_ok=True)
 
-            def _with_crack(res):
-                if crack_entry:
-                    res["crack"] = {
-                        "available": True,
-                        "buildid": crack_bid,
-                        "match_installed": bool(crack_bid and installed_buildid == crack_bid),
-                        "match_latest": bool(
-                            crack_bid and cm_buildid and cm_buildid != "0"
-                            and crack_bid == cm_buildid
-                        ),
-                        "fix": _pick_crack_fix(crack_entry),
-                        "source_crack": crack_entry.get("source_crack", [])[:1],
-                    }
-                return res
+    def _public_depot_gids(data):
+        out = {}
+        depots = data.get("depots", {}) if isinstance(data, dict) else {}
+        for depot_id, depot_data in depots.items():
+            if not str(depot_id).isdigit() or not isinstance(depot_data, dict):
+                continue
+            public_manifest = depot_data.get("manifests", {}).get("public", {})
+            gid = ""
+            if isinstance(public_manifest, dict):
+                gid = str(public_manifest.get("gid") or "").strip()
+            elif public_manifest:
+                gid = str(public_manifest).strip()
+            if gid and gid.isdigit():
+                out[str(depot_id)] = gid
+        return out
 
-            if not cm_buildid or cm_buildid == "0":
-                return _with_crack({"found": True, "error": "Could not retrieve buildid from Steam CM"})
+    cm_gids = _public_depot_gids(app_data)
 
-            if installed_buildid == cm_buildid:
-                return _with_crack({
-                    "found": True,
-                    "up_to_date": True,
-                    "installed_buildid": installed_buildid,
-                    "cm_buildid": cm_buildid,
-                })
+    parsed_lua = None
+    if saved_lua_path.exists():
+        parsed_lua = lua_manager.fetch_lua(LuaChoice.ADD_LUA, saved_lua_path)
 
-            os_type = OSType.WINDOWS if sys.platform == "win32" else OSType.LINUX
-            lua_manager = LuaManager(os_type)
-            saved_lua_path = _Path.cwd() / "saved_lua" / f"{app_id}.lua"
-            if not saved_lua_path.exists():
-                new_manifest_map = {}
-                depots = app_data.get("depots", {}) if isinstance(app_data, dict) else {}
-                for depot_id, depot_data in depots.items():
-                    if not str(depot_id).isdigit() or not isinstance(depot_data, dict):
-                        continue
-                    public_manifest = (
-                        depot_data.get("manifests", {})
-                        .get("public", {})
-                    )
-                    gid = ""
-                    if isinstance(public_manifest, dict):
-                        gid = str(public_manifest.get("gid") or "").strip()
-                    elif public_manifest:
-                        gid = str(public_manifest).strip()
-                    if gid and gid.isdigit():
-                        new_manifest_map[str(depot_id)] = gid
+    new_manifest_map = {}
+    if parsed_lua is not None:
+        parsed_lua.manifest_overrides = {}
+        try:
+            ConfigVDFWriter(bridge._steam_path).add_decryption_keys_to_config(parsed_lua)
+        except Exception as key_err:
+            logger.warning("Could not write depot keys during update: %s", key_err)
+        use_parallel = get_setting(Settings.USE_PARALLEL_DOWNLOADS)
+        override = cm_gids or None
+        if use_parallel:
+            manifest_paths = downloader.download_manifests_parallel(
+                parsed_lua, auto_manifest=True, manifest_override=override,
+            )
+        else:
+            manifest_paths = downloader.download_manifests(
+                parsed_lua, auto_manifest=True, manifest_override=override,
+            )
+        for mp in (manifest_paths or []):
+            stem = _Path(mp).stem
+            parts = stem.split("_")
+            if len(parts) == 2 and all(p.isdigit() for p in parts):
+                new_manifest_map[parts[0]] = parts[1]
+    else:
+        for depot_id, gid in cm_gids.items():
+            m_file = depotcache / f"{depot_id}_{gid}.manifest" if depotcache else None
+            if m_file and not m_file.exists():
+                raw_bytes = downloader.download_single_manifest(str(depot_id), gid, app_id=str(app_id))
+                if raw_bytes:
+                    m_file.write_bytes(raw_bytes)
+                    new_manifest_map[str(depot_id)] = gid
+            elif m_file and m_file.exists():
+                new_manifest_map[str(depot_id)] = gid
 
-                if new_manifest_map:
-                    acf_writer = ACFWriter(lib_path)
-                    acf_writer.patch_acf_depot_manifests(acf_path, new_manifest_map)
-                    acf_writer._patch_acf_error_state(acf_path)
-                    return _with_crack({
-                        "found": True,
-                        "up_to_date": False,
-                        "updated": True,
-                        "acf_only": True,
-                        "installed_buildid": installed_buildid,
-                        "cm_buildid": cm_buildid,
-                        "manifests_updated": 0,
-                        "acf_depots_patched": len(new_manifest_map),
-                    })
+    valid_manifest_map = {}
+    if depotcache:
+        for d_id, m_id in new_manifest_map.items():
+            src = depotcache / f"{d_id}_{m_id}.manifest"
+            if src.exists():
+                valid_manifest_map[d_id] = m_id
+                try:
+                    sync_manifest_to_config_depotcache(bridge._steam_path, src)
+                except Exception:
+                    pass
+                try:
+                    lib_dc = lib_path / "steamapps" / "depotcache"
+                    lib_dc.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, lib_dc / src.name)
+                except Exception:
+                    pass
+    else:
+        valid_manifest_map = new_manifest_map
 
-                return _with_crack({
-                    "found": True,
-                    "up_to_date": False,
-                    "installed_buildid": installed_buildid,
-                    "cm_buildid": cm_buildid,
-                    "error": f"No saved .lua for App ID {app_id}. Steam CM did not expose public manifest IDs either, so SteaMidra cannot patch this one automatically.",
-                })
+    lua_depots = set()
+    if parsed_lua is not None:
+        lua_depots = {
+            str(pair.depot_id)
+            for pair in parsed_lua.depots
+            if getattr(pair, "decryption_key", "")
+        }
+    installed_depot_ids = {
+        str(k) for k in (state.get("InstalledDepots") or {})
+    }
 
-            parsed_lua = lua_manager.fetch_lua(LuaChoice.ADD_LUA, saved_lua_path)
-            if parsed_lua is None:
-                return _with_crack({
-                    "found": True,
-                    "up_to_date": False,
-                    "error": "Failed to parse saved .lua file",
-                })
-            parsed_lua.manifest_overrides = {}
-
-            install_lua_to_steam(bridge._steam_path, str(parsed_lua.app_id), saved_lua_path)
-
-            downloader = ManifestDownloader(provider, bridge._steam_path)
-            use_parallel = get_setting(Settings.USE_PARALLEL_DOWNLOADS)
-            if use_parallel:
-                manifest_paths = downloader.download_manifests_parallel(parsed_lua, auto_manifest=True)
-            else:
-                manifest_paths = downloader.download_manifests(parsed_lua, auto_manifest=True)
-
-            new_manifest_map = {}
-            for mp in (manifest_paths or []):
-                stem = _Path(mp).stem
-                parts = stem.split("_")
-                if len(parts) == 2 and all(p.isdigit() for p in parts):
-                    new_manifest_map[parts[0]] = parts[1]
-
-            if new_manifest_map:
-                acf_writer = ACFWriter(lib_path)
-                acf_writer.patch_acf_depot_manifests(acf_path, new_manifest_map)
-                acf_writer._patch_acf_error_state(acf_path)
-                pinned_count = write_manifest_pins_to_lua(saved_lua_path, new_manifest_map)
-                if pinned_count:
-                    install_lua_to_steam(bridge._steam_path, str(parsed_lua.app_id), saved_lua_path)
-
+    if cm_gids and depotcache:
+        required_cm = {}
+        for d_id, gid in cm_gids.items():
+            if lua_depots and d_id not in lua_depots:
+                continue
+            if not lua_depots and installed_depot_ids and d_id not in installed_depot_ids:
+                continue
+            required_cm[d_id] = gid
+            src = depotcache / f"{d_id}_{gid}.manifest"
+            if src.exists():
+                valid_manifest_map[d_id] = gid
+        missing_cm = [
+            f"{d_id}_{gid}"
+            for d_id, gid in required_cm.items()
+            if valid_manifest_map.get(d_id) != gid
+        ]
+        if missing_cm:
             return _with_crack({
                 "found": True,
                 "up_to_date": False,
-                "updated": True,
                 "installed_buildid": installed_buildid,
                 "cm_buildid": cm_buildid,
-                "manifests_updated": len(new_manifest_map),
-                "lua_pins_written": pinned_count if new_manifest_map else 0,
+                "error": (
+                    "Steam nie pobierze tej aktualizacji sam "
+                    "(manifest request code = Access Denied). "
+                    f"Nie udało się dociągnąć: {', '.join(missing_cm)}. "
+                    "Spróbuj ponownie, gdy Hubcap/Morrenus będą miały te manifesty."
+                ),
             })
 
+    if not valid_manifest_map:
+        return _with_crack({
+            "found": True,
+            "up_to_date": False,
+            "installed_buildid": installed_buildid,
+            "cm_buildid": cm_buildid,
+            "error": f"Failed to download new manifests for App ID {app_id}. Check API keys and network connection.",
+        })
+
+    pinned_count = 0
+    if saved_lua_path.exists():
+        pinned_count = write_manifest_pins_to_lua(saved_lua_path, valid_manifest_map)
+        install_lua_to_steam(bridge._steam_path, str(app_id), saved_lua_path)
+
+    # Workshop "NeedsDownload=1" is the documented cause of Steam's
+    # fake "No internet connection" while updating an unlocked game.
+    try:
+        ACFWriter(lib_path).patch_workshop_acf(SimpleNamespace(app_id=int(app_id)))
+    except Exception as ws_err:
+        logger.debug("workshop ACF patch skipped: %s", ws_err)
+
+    # Leave InstalledDepots on the old GIDs. Point TargetBuildID at the
+    # new CM build and set UpdateRequired so Steam fetches the files.
+    try:
+        flags = 4 | 2  # FullyInstalled | UpdateRequired
+        data_acf = vdf_load(acf_path)
+        st = data_acf.get("AppState", {})
+        st["TargetBuildID"] = str(cm_buildid)
+        st["StateFlags"] = str(flags)
+        st["UpdateResult"] = "0"
+        st["ScheduledAutoUpdate"] = "0"
+        st["DownloadType"] = "0"
+        vdf_dump(acf_path, data_acf)
+    except Exception as acf_save_err:
+        logger.warning("Failed marking ACF update-required: %s", acf_save_err)
+
+    try:
+        from sff.ui.notifications import get_notification_service
+        ns = get_notification_service()
+        if ns:
+            ns.show_info(
+                "Manifest gotowy",
+                f"{game_name or app_id}: build {cm_buildid}. Zrestartuj Steam i pobierz aktualizację w Steam.",
+            )
+    except Exception:
+        pass
+
+    return _with_crack({
+        "found": True,
+        "up_to_date": False,
+        "updated": True,
+        "restart_needed": True,
+        "installed_buildid": installed_buildid,
+        "cm_buildid": cm_buildid,
+        "manifests_updated": len(valid_manifest_map),
+        "lua_pins_written": pinned_count,
+    })
+
+
+def _bridge_check_game_update(bridge, app_id):
+    """Compare installed ACF buildid against Steam CM public buildid.
+    If Steam CM is newer: download updated manifests and pin Lua.
+    Emits task_finished with task='update_check'."""
+    def _do():
+        try:
+            return _perform_game_manifest_update(bridge, app_id)
         except Exception as e:
             logger.exception("check_game_update failed: %s", e)
             return {"found": True, "error": str(e)}
@@ -723,6 +890,12 @@ def _bridge_check_game_update(bridge, app_id):
         elif result.get("updated"):
             if result.get("acf_only"):
                 msg = f"Patched ACF to build {result.get('cm_buildid', '')}. Run Download Games if depotcache manifests are missing."
+            elif result.get("restart_needed"):
+                msg = (
+                    f"Manifest gotowy (build {result.get('cm_buildid', '')}). "
+                    "Zrestartuj Steam, potem kliknij Aktualizuj w Steam. "
+                    "Nie ruszaj pobierania, dopóki Steam nie wczyta nowego Lua."
+                )
             else:
                 msg = f"Updated to build {result.get('cm_buildid', '')}"
         elif result.get("error"):
@@ -979,7 +1152,8 @@ def _bridge_lure_fix_acf(bridge, app_id):
             state = acf_data.get("AppState", {})
             installed = state.get("InstalledDepots", {})
 
-            new_manifest_map = {}
+            depotcache = (_Path(bridge._steam_path) / "depotcache") if bridge._steam_path else None
+            safe_manifest_map = {}
             for depot_id in list(installed.keys()):
                 mani_pub = (
                     depots_data.get(str(depot_id), {})
@@ -990,20 +1164,24 @@ def _bridge_lure_fix_acf(bridge, app_id):
                     gid = mani_pub.get("gid")
                 else:
                     gid = mani_pub
-                if gid:
-                    new_manifest_map[depot_id] = str(gid)
+                # Only use new manifest if it is already present in depotcache!
+                if gid and depotcache and (depotcache / f"{depot_id}_{gid}.manifest").exists():
+                    safe_manifest_map[str(depot_id)] = str(gid)
 
-            if new_manifest_map:
+            if safe_manifest_map:
                 acf_writer = ACFWriter(lib_path)
-                acf_writer.patch_acf_depot_manifests(acf_path, new_manifest_map)
+                acf_writer.patch_acf_depot_manifests(acf_path, safe_manifest_map)
 
             acf_data = vdf_load(acf_path)
             state = acf_data.get("AppState", {})
-            state["buildid"] = cm_buildid
+            curr_build = str(state.get("buildid", "0") or "0").strip()
+            # If all depots were upgraded to new manifests, we can advance buildid; otherwise keep current installed build
+            target_build = cm_buildid if (safe_manifest_map and len(safe_manifest_map) == len(installed)) else (curr_build if curr_build != "0" else cm_buildid)
+            state["buildid"] = target_build
+            state["TargetBuildID"] = target_build
             state["StateFlags"] = "4"
-            state["TargetBuildID"] = cm_buildid
-            state["DownloadType"] = "0"
             state["UpdateResult"] = "0"
+            state["DownloadType"] = "0"
             state["ScheduledAutoUpdate"] = "0"
             state["BytesToDownload"] = "0"
             state["BytesDownloaded"] = "0"
@@ -1098,6 +1276,13 @@ def _bridge_restart_steam(bridge):
             }))
             injector = bridge._steam_path / "steam.exe"
             ok, msg = launch_steam_unelevated(injector, bridge._steam_path)
+            if ok:
+                try:
+                    from sff.core.storage.settings import set_setting
+                    from sff.core.structs import Settings
+                    set_setting(Settings.STEAM_RESTART_NEEDED, False)
+                except Exception:
+                    pass
             return (ok, msg)
 
         else:
@@ -1105,6 +1290,12 @@ def _bridge_restart_steam(bridge):
             kill_steam()
             result = start_steam(steam_path=bridge._steam_path)
             if result == "SUCCESS":
+                try:
+                    from sff.core.storage.settings import set_setting
+                    from sff.core.structs import Settings
+                    set_setting(Settings.STEAM_RESTART_NEEDED, False)
+                except Exception:
+                    pass
                 return (True, "Steam restarted")
             return (False, f"Steam start failed: {result}")
 
@@ -1128,6 +1319,61 @@ def _bridge_open_log_window(bridge):
         parent._log_window.raise_()
         parent._log_window.activateWindow()
 
+def _bridge_get_recent_logs(bridge, max_lines=400):
+    """Parse and return recent log entries from debug.log."""
+    from sff.core.utils import sff_data_dir
+    log_file = sff_data_dir() / "debug.log"
+    if not log_file.exists():
+        return json.dumps([])
+    try:
+        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        tail = lines[-max_lines:] if len(lines) > max_lines else lines
+        records = []
+        for line in tail:
+            line_str = line.rstrip("\r\n")
+            if not line_str:
+                continue
+            if "::" in line_str:
+                parts = line_str.split("::", 3)
+                if len(parts) == 4:
+                    records.append({
+                        "time": parts[0].strip(),
+                        "name": parts[1].strip(),
+                        "level": parts[2].strip().upper(),
+                        "message": parts[3].strip(),
+                    })
+                    continue
+            if records:
+                records[-1]["message"] += "\n" + line_str
+            else:
+                records.append({
+                    "time": "",
+                    "name": "system",
+                    "level": "INFO",
+                    "message": line_str,
+                })
+        return json.dumps(records)
+    except Exception as e:
+        logger.debug("Failed reading debug.log: %s", e)
+        return json.dumps([])
+
+def _bridge_clear_logs(bridge):
+    """Truncate the debug.log file."""
+    from sff.core.utils import sff_data_dir
+    log_file = sff_data_dir() / "debug.log"
+    try:
+        if log_file.exists():
+            with open(log_file, "w", encoding="utf-8") as f:
+                f.write("")
+        return True
+    except Exception:
+        return False
+
+def _bridge_get_log_file_path(bridge):
+    from sff.core.utils import sff_data_dir
+    return str(sff_data_dir() / "debug.log")
+
 def _bridge_copy_to_clipboard(bridge, text):
     """Copy text to system clipboard via Qt (works in QWebEngine)."""
     from PyQt6.QtWidgets import QApplication
@@ -1149,7 +1395,19 @@ def _bridge_install_lumacore(bridge, steam_path_str, variant=""):
     def _do():
         from pathlib import Path
         from sff.lumacore.lumacore_setup import install_lumacore
-        steam_path = Path(steam_path_str) if steam_path_str else bridge._ui.steam_path
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        steam_path = None
+        if steam_path_str:
+            steam_path = Path(steam_path_str)
+        else:
+            sp = getattr(bridge, '_steam_path', None) or getattr(getattr(bridge, '_ui', None), 'steam_path', None)
+            if not sp:
+                saved = get_setting(Settings.STEAM_PATH)
+                if saved:
+                    sp = Path(saved)
+            steam_path = sp
+
         def _progress(msg):
             bridge.lc_progress.emit(msg)
         picked = (variant or "release").strip().lower()
@@ -1173,10 +1431,17 @@ def _bridge_steam_updates_get_state(bridge):
     - unknown   : file missing OR no BootStrapperInhibitAll line found
     """
     try:
-        steam_path = bridge._steam_path
+        from pathlib import Path
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        steam_path = getattr(bridge, '_steam_path', None) or getattr(getattr(bridge, '_ui', None), 'steam_path', None)
+        if not steam_path:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
         if not steam_path:
             return "unknown"
-        cfg_path = steam_path / "steam.cfg"
+        cfg_path = Path(steam_path) / "steam.cfg"
         if not cfg_path.is_file():
             return "unknown"
         text = cfg_path.read_text(encoding="utf-8", errors="replace")
@@ -1212,10 +1477,17 @@ def _bridge_steam_updates_set_state(bridge, action):
     on success, or an error message string on failure.
     """
     try:
-        steam_path = bridge._steam_path
+        from pathlib import Path
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        steam_path = getattr(bridge, '_steam_path', None) or getattr(getattr(bridge, '_ui', None), 'steam_path', None)
+        if not steam_path:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
         if not steam_path:
             return "Steam path not set"
-        cfg_path = steam_path / "steam.cfg"
+        cfg_path = Path(steam_path) / "steam.cfg"
 
         normalised = (action or "").strip().lower()
         if normalised == "block":
@@ -1274,9 +1546,22 @@ def _bridge_lumacore_check_update(bridge, _arg=""):
     updates button so users get an answer they can trust.
     """
     try:
+        from pathlib import Path
         from sff.lumacore.lumacore_setup import check_for_lumacore_update
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        steam_path = getattr(bridge, '_steam_path', None) or getattr(getattr(bridge, '_ui', None), 'steam_path', None)
+        if not steam_path:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
+            else:
+                from sff.registry_access import find_steam_path_from_registry
+                reg = find_steam_path_from_registry()
+                if reg:
+                    steam_path = Path(reg)
         force = (str(_arg).strip().lower() == "force")
-        data = check_for_lumacore_update(bridge._steam_path, force=force)
+        data = check_for_lumacore_update(steam_path, force=force)
         return json.dumps(data)
     except Exception as exc:
         logger.warning("lumacore_check_update failed: %s", exc)
@@ -1294,10 +1579,18 @@ def _bridge_lumacore_deactivate(bridge):
     task_finished{auto_lc_deactivate} when done.
     """
     def _do():
+        from pathlib import Path
         from sff.lumacore.lumacore_setup import deactivate_lumacore
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
         def _progress(msg):
             bridge.lc_progress.emit(msg)
-        success, message = deactivate_lumacore(bridge._steam_path, _progress)
+        steam_path = getattr(bridge, '_steam_path', None) or getattr(getattr(bridge, '_ui', None), 'steam_path', None)
+        if not steam_path:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
+        success, message = deactivate_lumacore(steam_path, _progress)
         return success, message
 
     def _on_done(result):
@@ -1567,6 +1860,26 @@ def _bridge_open_url(bridge, url):
     from PyQt6.QtCore import QUrl
     from PyQt6.QtGui import QDesktopServices
     QDesktopServices.openUrl(QUrl(url))
+
+def _bridge_install_game(bridge, app_id):
+    """Open Steam's install dialog for an injected, not-downloaded game."""
+    app_id = str(app_id or "").strip()
+    if not app_id.isdigit():
+        bridge._emit_task_result("install_game", False, f"Invalid App ID: {app_id!r}", app_id=app_id)
+        return
+    try:
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        ok = QDesktopServices.openUrl(QUrl(f"steam://install/{app_id}"))
+        bridge._emit_task_result(
+            "install_game",
+            bool(ok),
+            "Opened Steam install dialog" if ok else "Could not open Steam install dialog",
+            app_id=app_id,
+        )
+    except Exception as exc:
+        bridge._emit_task_result("install_game", False, str(exc), app_id=app_id)
+
 
 def _bridge_launch_game(bridge, app_id):
     app_id = str(app_id or "").strip()
@@ -2474,7 +2787,7 @@ def _bridge__scan_installed_games(bridge):
     from sff.core.storage.vdf import get_steam_libs
     import os
     from sff.gui.web_bridge import _collect_steamidra_managed_sources
-    managed_sources = _collect_steamidra_managed_sources(bridge._steam_path)
+    managed_sources = _collect_steamidra_managed_sources(bridge._steam_path) or {}
 
     libs = list(get_steam_libs(bridge._steam_path))
     if os.name == 'nt':
@@ -2496,6 +2809,9 @@ def _bridge__scan_installed_games(bridge):
                     app_id = ""
                     name = ""
                     installdir = ""
+                    buildid = ""
+                    target_buildid = ""
+                    state_flags = 4
                     for line in text.splitlines():
                         line = line.strip()
                         if '"appid"' in line:
@@ -2504,6 +2820,15 @@ def _bridge__scan_installed_games(bridge):
                             name = line.split('"')[-2] if '"' in line else ""
                         elif '"installdir"' in line:
                             installdir = line.split('"')[-2] if '"' in line else ""
+                        elif '"buildid"' in line and not buildid:
+                            buildid = line.split('"')[-2] if '"' in line else ""
+                        elif '"TargetBuildID"' in line:
+                            target_buildid = line.split('"')[-2] if '"' in line else ""
+                        elif '"StateFlags"' in line:
+                            try:
+                                state_flags = int(line.split('"')[-2])
+                            except Exception:
+                                pass
                     if not app_id or app_id in seen:
                         continue
                     game_path = steamapps / "common" / installdir if installdir else None
@@ -2512,14 +2837,25 @@ def _bridge__scan_installed_games(bridge):
                         skipped_missing_dir += 1
                     seen.add(app_id)
                     managed = managed_sources.get(app_id) or []
+                    local_cover = _find_steam_local_cover_data(bridge._steam_path, app_id)
+
+                    auto_map = _get_game_auto_update_map() or {}
+                    auto_update = bool(auto_map.get(str(app_id), False))
+                    has_update = bool((target_buildid and target_buildid != buildid) or (state_flags & 2))
+
                     games.append({
                         "app_id": int(app_id) if app_id.isdigit() else 0,
                         "name": name or f"App {app_id}",
                         "installed": files_on_disk,
                         "manifest_only": not files_on_disk,
                         "path": str(game_path) if game_path else "",
+                        "cover_url": local_cover or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg",
                         "steamidra_managed": bool(managed),
                         "steamidra_source": ",".join(sorted(managed)),
+                        "buildid": buildid,
+                        "target_buildid": target_buildid,
+                        "has_update": has_update,
+                        "auto_update": auto_update,
                     })
                 except Exception as e:
                     logger.debug("_scan_installed_games: skipped %s: %s", acf.name, e)
@@ -2535,14 +2871,20 @@ def _bridge__scan_installed_games(bridge):
             continue
         seen.add(app_id)
         name = get_app_name(app_id) or f"App {app_id}"
+        local_cover = _find_steam_local_cover_data(bridge._steam_path, app_id)
         games.append({
             "app_id": int(app_id) if str(app_id).isdigit() else 0,
             "name": name,
             "installed": False,
             "manifest_only": True,
             "path": "",
+            "cover_url": local_cover or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{app_id}/library_600x900.jpg",
             "steamidra_managed": True,
             "steamidra_source": ",".join(sorted(sources or [])),
+            "buildid": "",
+            "target_buildid": "",
+            "has_update": False,
+            "auto_update": bool(auto_map.get(str(app_id), False)),
         })
     games.sort(key=lambda g: g.get("name", "").lower())
     if skipped_missing_dir:
@@ -2640,6 +2982,73 @@ def _bridge_fetch_library_images(bridge, app_ids_json):
 
     bridge._run_async(_do, on_done=_on_done)
 
+def _find_steam_local_cover_data(steam_path, app_id):
+    """Search for the official 600x900 vertical Steam cover in local Steam cache.
+    Checks:
+    1. steam_path/appcache/librarycache/<app_id> (recursive for library_600x900*.jpg or library_capsule.jpg)
+    2. steam_path/userdata/*/config/grid/<app_id>p.jpg / <app_id>p.png / <app_id>.jpg / <app_id>.png
+    Returns base64 data URI (data:image/jpeg;base64,...) or None.
+    """
+    if not steam_path or not app_id:
+        return None
+    import base64
+    from pathlib import Path
+    steam_p = Path(steam_path)
+    aid_str = str(app_id)
+
+    # 1. Check Steam client librarycache
+    cache_dir = steam_p / "appcache" / "librarycache" / aid_str
+    if cache_dir.exists():
+        found = None
+        for name in ("library_600x900.jpg", "library_capsule.jpg"):
+            p = cache_dir / name
+            if p.is_file():
+                found = p
+                break
+        if not found:
+            for p in cache_dir.glob("library_600x900_*.jpg"):
+                if p.is_file():
+                    found = p
+                    break
+        if not found:
+            for root, dirs, files in os.walk(cache_dir):
+                for f in files:
+                    if f in ("library_600x900.jpg", "library_capsule.jpg") or f.startswith("library_600x900_"):
+                        found = Path(root) / f
+                        break
+                if found:
+                    break
+        if found and found.is_file():
+            try:
+                b = found.read_bytes()
+                mime = "image/png" if found.suffix.lower() == ".png" else "image/jpeg"
+                b64 = base64.b64encode(b).decode("ascii")
+                return f"data:{mime};base64,{b64}"
+            except Exception:
+                pass
+
+    # 2. Check Steam client userdata custom grid covers
+    userdata_dir = steam_p / "userdata"
+    if userdata_dir.exists():
+        try:
+            for u in userdata_dir.iterdir():
+                grid_dir = u / "config" / "grid"
+                if grid_dir.exists():
+                    for ext in ("p.jpg", "p.png", ".jpg", ".png"):
+                        p = grid_dir / f"{aid_str}{ext}"
+                        if p.is_file():
+                            try:
+                                b = p.read_bytes()
+                                mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+                                b64 = base64.b64encode(b).decode("ascii")
+                                return f"data:{mime};base64,{b64}"
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+
+    return None
+
 def _bridge_load_library(bridge):
     """Async: scan installed games + fetch Steam API image URLs in one pass.
     Emits task_finished with task='library_loaded' and games=[{...}].
@@ -2659,7 +3068,17 @@ def _bridge_load_library(bridge):
                 if url:
                     cached[str(img_appid)] = url
         for g in games:
-            g["image_url"] = cached.get(str(g["app_id"]))
+            aid = g.get("app_id")
+            if aid:
+                local_cover = _find_steam_local_cover_data(bridge._steam_path, aid)
+                if local_cover:
+                    g["cover_url"] = local_cover
+                elif not g.get("cover_url"):
+                    g["cover_url"] = f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/library_600x900.jpg"
+                g["image_url"] = cached.get(str(aid)) or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/header.jpg"
+            else:
+                g["cover_url"] = ""
+                g["image_url"] = ""
         return games
 
     def _on_done(games):
@@ -2677,8 +3096,15 @@ def _bridge_refresh_library(bridge):
 
 def _bridge_delete_game(bridge, app_id, game_path, mode):
     """Remove a game from the library and optionally delete its files.
-    mode='applist' removes the stplug-in Lua only.
-    mode='full' also deletes the ACF manifest and the game folder from disk.
+
+    mode in ('manifest', 'library', 'remove_manifest', 'applist'):
+        Removes the ACF manifest (appmanifest_<appid>.acf) and stplug-in Lua
+        from Steam, so the game is completely removed from the Steam library,
+        leaving game files on disk untouched.
+    mode in ('full', 'uninstall', 'remove_disk', 'disk'):
+        Uninstalls the game: deletes all game files from disk
+        (steamapps/common/<installdir>) AND deletes the ACF manifest and
+        stplug-in Lua so the game is gone from Steam and disk.
     """
     def _do():
         import shutil
@@ -2686,71 +3112,155 @@ def _bridge_delete_game(bridge, app_id, game_path, mode):
         if app_id_int is None:
             return (False, "Invalid App ID")
 
-        # Lua deletion is the primary remove step in both modes. When
-        # LumaCore is loaded, its DirWatch fires on the .lua delete
-        # and emits CAppOverview_Change so Steam's library updates
-        # live, no restart needed. If LumaCore isn't loaded yet the
-        # user has to restart Steam for the game to disappear from
-        # the library, which is what bit Svph (delete returned OK
-        # but the game stayed in Steam's UI).
-        lua_removed = False
+        is_uninstall = str(mode).strip().lower() in ("full", "uninstall", "disk", "remove_disk")
+        logger.info("delete_game requested: app_id=%s, mode=%s (is_uninstall=%s), game_path=%s", app_id_int, mode, is_uninstall, game_path)
+        # Drop the cached library immediately so a concurrent load_library
+        # cannot restore a game that is already being removed.
+        bridge._installed_games_cache = None
+
+        # 1. Gather all Steam library directories
+        libs = []
+        if bridge._steam_path:
+            try:
+                from sff.core.storage.vdf import get_steam_libs
+                libs = get_steam_libs(bridge._steam_path)
+            except Exception as e:
+                logger.debug("delete_game: get_steam_libs failed: %s", e)
+            if not libs or Path(bridge._steam_path) not in libs:
+                libs = [Path(bridge._steam_path)] + [l for l in libs if l != Path(bridge._steam_path)]
+
+        # 2. Inspect ACF manifests across all libraries to find installdir & mounted depots
+        installed_dir_name = ""
+        depot_ids_to_clean = set()
+        acf_paths_to_delete = []
+
+        for lib in libs:
+            acf = Path(lib) / "steamapps" / f"appmanifest_{app_id_int}.acf"
+            if acf.exists():
+                acf_paths_to_delete.append(acf)
+                try:
+                    from sff.core.storage.acf import ACFParser
+                    parser = ACFParser(acf)
+                    if parser.install_dir and not installed_dir_name:
+                        installed_dir_name = parser.install_dir
+                    mounted = parser.get_mounted_depots() or {}
+                    for d_id, m_val in mounted.items():
+                        m_str = m_val.get("manifest") if isinstance(m_val, dict) else str(m_val)
+                        if m_str:
+                            depot_ids_to_clean.add((str(d_id), str(m_str)))
+                except Exception as e:
+                    logger.debug("delete_game: error parsing ACF %s: %s", acf, e)
+
+        # 3. If Uninstalling: Delete game folder from disk
+        folder_deleted = False
+        if is_uninstall:
+            target_dirs = []
+            if game_path:
+                p = Path(game_path)
+                if p.exists() and p.is_dir():
+                    target_dirs.append(p)
+            if installed_dir_name:
+                for lib in libs:
+                    cand = Path(lib) / "steamapps" / "common" / installed_dir_name
+                    if cand.exists() and cand.is_dir() and cand not in target_dirs:
+                        target_dirs.append(cand)
+
+            for t_dir in target_dirs:
+                try:
+                    resolved = t_dir.resolve()
+                    # Safety check: avoid deleting filesystem root or steamapps/common root
+                    name_lower = resolved.name.lower()
+                    if name_lower not in ("", "common", "steamapps", "steam", "steamlibrary") and len(resolved.parts) > 3:
+                        logger.info("delete_game: deleting game directory on disk: %s", resolved)
+                        shutil.rmtree(resolved, ignore_errors=True)
+                        folder_deleted = True
+                except Exception as e:
+                    logger.warning("delete_game: failed to delete directory %s: %s", t_dir, e)
+
+        # 4. Remove ACF manifest file(s) so Steam unregisters the game
+        acf_deleted_count = 0
+        for acf in acf_paths_to_delete:
+            try:
+                if acf.exists():
+                    acf.unlink()
+                    acf_deleted_count += 1
+                    logger.info("delete_game: unlinked ACF %s", acf)
+            except Exception as e:
+                logger.warning("delete_game: could not delete ACF %s: %s", acf, e)
+
+        # 5. Clean up associated depotcache manifests
+        depotcache_dirs = []
+        if bridge._steam_path:
+            depotcache_dirs.extend([
+                Path(bridge._steam_path) / "depotcache",
+                Path(bridge._steam_path) / "config" / "depotcache",
+            ])
+        for lib in libs:
+            depotcache_dirs.extend([
+                Path(lib) / "steamapps" / "depotcache",
+                Path(lib) / "depotcache",
+            ])
+
+        for d_id, m_id in depot_ids_to_clean:
+            fname = f"{d_id}_{m_id}.manifest"
+            for c_dir in depotcache_dirs:
+                m_file = c_dir / fname
+                try:
+                    if m_file.exists():
+                        m_file.unlink()
+                        logger.info("delete_game: unlinked manifest %s", m_file)
+                except Exception as e:
+                    logger.debug("delete_game: error unlinking manifest %s: %s", m_file, e)
+
+        # 6. Remove stplug-in Lua (LumaCore / SmokeAPI integration) & saved_lua cache
         if bridge._steam_path:
             try:
                 from sff.steam_tools_compat import remove_lua_from_steam
                 remove_lua_from_steam(bridge._steam_path, app_id_int)
-                lua_removed = True
             except Exception as e:
-                logger.warning("delete_game: stplug-in Lua removal failed: %s", e)
-            # Also remove from saved_lua/ cache
+                logger.warning("delete_game: remove_lua_from_steam failed: %s", e)
+
             try:
                 saved_path = Path.cwd() / "saved_lua" / f"{app_id_int}.lua"
                 if saved_path.exists():
                     saved_path.unlink()
-                    logger.info("delete_game: removed saved_lua cache %s", saved_path)
             except Exception:
                 pass
 
-        if mode != "full":
-            if lua_removed:
-                return (True, "Removed from library. If the game still shows in Steam, restart Steam (or run Auto LC Setup if you haven't yet).")
-            return (True, "Removed from library")
+        # 7. Invalidate library caches so the UI reflects the removal immediately
+        bridge._installed_games_cache = None
 
-        # mode='full' also wipes the ACF manifest + the game folder.
-        files_deleted = False
-
-        if bridge._steam_path:
-            try:
-                from sff.core.storage.vdf import get_steam_libs
-                for lib in get_steam_libs(bridge._steam_path):
-                    acf = lib / "steamapps" / f"appmanifest_{app_id_int}.acf"
-                    if acf.exists():
-                        acf.unlink()
-                        files_deleted = True
-                        break
-            except Exception as e:
-                logger.warning("delete_game: ACF removal failed: %s", e)
-
-        if game_path:
-            p = Path(game_path)
-            if p.exists() and p.is_dir():
-                try:
-                    shutil.rmtree(p, ignore_errors=False)
-                    files_deleted = True
-                except Exception as e:
-                    logger.warning("delete_game: folder removal failed: %s", e)
-
-        if files_deleted:
-            return (True, "Game removed and deleted from disk. Restart Steam if it still shows in the library.")
-        return (True, "Removed from library (game folder not found or already gone). Restart Steam if it still shows in the library.")
+        if is_uninstall:
+            if folder_deleted:
+                msg = f"Game uninstalled from disk and removed from Steam library."
+            else:
+                msg = f"Game removed from Steam library (files were not found on disk)."
+            return (True, msg)
+        else:
+            return (True, f"Manifest removed from Steam library. Files remain on disk.")
 
     def _on_done(result):
         if isinstance(result, tuple):
             ok, msg = result
             bridge._emit_task_result("delete_game", ok, msg, app_id=app_id)
         else:
-            bridge._emit_task_result("delete_game", False, "Delete failed", app_id=app_id)
+            bridge._emit_task_result("delete_game", False, "Delete operation failed", app_id=app_id)
 
     bridge._run_async(_do, on_done=_on_done)
+
+def _bridge_open_game_folder(bridge, app_id, game_path):
+    """Open game folder in Windows Explorer / system file manager."""
+    from PyQt6.QtGui import QDesktopServices
+    from PyQt6.QtCore import QUrl
+    p = None
+    if game_path:
+        p = Path(game_path)
+    if not p or not p.exists():
+        acf = bridge._resolve_acf(app_id)
+        if acf and hasattr(acf, "path") and acf.path:
+            p = Path(acf.path)
+    if p and p.exists():
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
 # ── Google Drive auth ─────────────────────────────────────────
 
@@ -2776,4 +3286,129 @@ def _bridge_dump_achievement_diagnostic(bridge):
     except Exception as exc:
         logger.exception("dump_achievement_diagnostic failed: %s", exc)
         return ""
+
+
+# ── Manifest Auto-Checker & Per-Game Auto-Update ────────────────
+
+def _get_game_auto_update_map() -> dict:
+    try:
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        val = get_setting(Settings.GAME_AUTO_UPDATE_MAP)
+        if isinstance(val, str):
+            import json
+            loaded = json.loads(val) if val.strip() else {}
+            if isinstance(loaded, dict):
+                return loaded
+            return {}
+        if isinstance(val, dict):
+            return val
+    except Exception:
+        pass
+    return {}
+
+
+def _bridge_get_game_auto_update(bridge, app_id):
+    """Return whether auto-update is enabled for this game."""
+    try:
+        data = _get_game_auto_update_map()
+        return bool(data.get(str(app_id), False))
+    except Exception:
+        return False
+
+
+def _bridge_set_game_auto_update(bridge, app_id, enabled):
+    """Set whether auto-update is enabled for this game."""
+    try:
+        from sff.core.storage.settings import set_setting
+        from sff.core.structs import Settings
+        data = dict(_get_game_auto_update_map())
+        data[str(app_id)] = bool(enabled)
+        set_setting(Settings.GAME_AUTO_UPDATE_MAP, data)
+        bridge._emit_task_result("game_auto_update_changed", True, f"Auto-update: {enabled}", app_id=str(app_id), enabled=bool(enabled))
+        return True
+    except Exception as e:
+        logger.exception("set_game_auto_update failed: %s", e)
+        return False
+
+
+def _bridge_run_autochecker(bridge, force=False):
+    """Check all installed games for updates.
+    Runs on background worker. If game has auto_update=True: downloads manifests and patches ACF.
+    If game has auto_update=False: suppresses Steam block via lure_fix_acf so game can launch freely.
+    Emits task_finished with task='autocheck_finished'."""
+    def _do():
+        try:
+            from sff.core.storage.settings import get_setting
+            from sff.core.structs import Settings
+            from sff.core.storage.vdf import get_steam_libs, vdf_load
+            from sff.ui.notifications import get_notification_service
+
+            enabled = get_setting(Settings.AUTO_CHECK_MANIFEST_UPDATES)
+            if not enabled and not force:
+                return {"skipped": True, "reason": "auto_check_manifest_updates disabled in settings"}
+
+            auto_map = _get_game_auto_update_map()
+            ns = get_notification_service()
+
+            steam_libs = list(get_steam_libs(bridge._steam_path)) if bridge._steam_path else []
+            checked_games = []
+
+            for lib in steam_libs:
+                steamapps = lib / "steamapps"
+                if not steamapps.exists():
+                    continue
+                for acf_path in steamapps.glob("appmanifest_*.acf"):
+                    try:
+                        acf_data = vdf_load(acf_path)
+                        app_state = acf_data.get("AppState", {})
+                        app_id = str(app_state.get("appid", "")).strip()
+                        name = str(app_state.get("name", f"App {app_id}")).strip()
+                        if not app_id:
+                            continue
+
+                        installed_bid = str(app_state.get("buildid", "0")).strip()
+                        target_bid = str(app_state.get("TargetBuildID", "")).strip()
+                        state_flags = int(str(app_state.get("StateFlags", "4") or "4"))
+
+                        has_pending = bool((target_bid and target_bid != installed_bid) or (state_flags & 2))
+                        game_auto = bool(auto_map.get(app_id, False))
+
+                        if has_pending:
+                            if game_auto:
+                                if ns:
+                                    ns.show_info("Auto-Update Manifest", f"Aktualizowanie manifestu dla gry {name}...")
+                                upd = _perform_game_manifest_update(bridge, app_id)
+                                checked_games.append({
+                                    "app_id": app_id,
+                                    "name": name,
+                                    "status": "updated" if upd.get("updated") or upd.get("up_to_date") else "error",
+                                    "auto_update": True,
+                                    "restart_needed": bool(upd.get("restart_needed")),
+                                    "error": upd.get("error") or "",
+                                })
+                            else:
+                                _bridge_lure_fix_acf(bridge, app_id)
+                                checked_games.append({
+                                    "app_id": app_id,
+                                    "name": name,
+                                    "status": "update_available",
+                                    "auto_update": False,
+                                    "target_build": target_bid,
+                                })
+                                if ns:
+                                    ns.show_info("Dostępna aktualizacja", f"Dla {name} jest dostępna nowsza wersja. Steam został odblokowany do uruchomienia.")
+                    except Exception as acf_err:
+                        logger.debug("Auto-checker error for %s: %s", acf_path.name, acf_err)
+
+            return {"success": True, "count": len(checked_games), "games": checked_games}
+        except Exception as e:
+            logger.exception("run_autochecker error: %s", e)
+            return {"success": False, "error": str(e)}
+
+    def _on_done(result):
+        bridge._emit_task_result("autocheck_finished", bool(result and result.get("success")), "Auto-check complete", **(result or {}))
+
+    bridge._run_async(_do, on_done=_on_done)
+
 

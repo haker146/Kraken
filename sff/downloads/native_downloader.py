@@ -63,6 +63,54 @@ END_MAGIC = 0x32C415AB
 _CDN_TIMEOUT = 60.0
 _CHUNK_RETRIES = 3
 
+
+def _download_paused() -> bool:
+    try:
+        from sff.game.download_queue import _is_paused
+        return bool(_is_paused())
+    except Exception:
+        return False
+
+
+def _wait_if_paused() -> None:
+    while _download_paused():
+        time.sleep(0.35)
+
+
+def _speed_limit_bps() -> int:
+    """Native downloader cap in bytes/sec. 0 = unlimited."""
+    try:
+        from sff.core.storage.settings import get_setting
+        from sff.core.structs import Settings
+        raw = str(get_setting(Settings.DOWNLOAD_SPEED_LIMIT) or "").strip()
+        kbps = int(float(raw)) if raw else 0
+        return max(0, kbps) * 1024
+    except Exception:
+        return 0
+
+
+class _ByteRateLimiter:
+    def __init__(self, bps: int):
+        self.bps = max(0, int(bps or 0))
+        self.tokens = float(self.bps)
+        self.last = time.monotonic()
+        self.lock = __import__("threading").Lock()
+
+    def take(self, nbytes: int) -> None:
+        if self.bps <= 0 or nbytes <= 0:
+            return
+        n = float(nbytes)
+        with self.lock:
+            while True:
+                now = time.monotonic()
+                self.tokens = min(self.bps * 2.0, self.tokens + (now - self.last) * self.bps)
+                self.last = now
+                if self.tokens >= n:
+                    self.tokens -= n
+                    return
+                need = (n - self.tokens) / self.bps
+                time.sleep(min(max(need, 0.01), 0.35))
+
 _REQUEST_CODE_FALLBACKS = (
     ("https://manifest.steam.run/api/manifest/{}", "json", "content"),
     ("http://gmrc.wudrm.com/manifest/{}", "text", None),
@@ -531,11 +579,14 @@ def download_depot(
     total_done = [0]
     total_bytes = [0]
     fatal_error = [None]
+    limiter = _ByteRateLimiter(_speed_limit_bps())
 
     def _download_one_chunk(sha: str, offset: int, cb_original: int, fpath: Path) -> int:
         """Downloads one chunk. Returns bytes written or -1 on failure."""
         if fatal_error[0] is not None:
             return -1
+
+        _wait_if_paused()
 
         host = host_for_chunk.get(sha, server_hosts[0])
         use_https = any(
@@ -578,6 +629,7 @@ def download_depot(
             return -1
 
         n = len(raw)
+        limiter.take(n)
         with done_lock:
             total_bytes[0] += n
             total_done[0] += 1
@@ -591,38 +643,60 @@ def download_depot(
         MAX_WORKERS = min(max(int(val) if val else 32, 8), 64)
     except Exception:
         MAX_WORKERS = 32
+    if limiter.bps:
+        print_fn(f"[native] Speed limit {limiter.bps // 1024} KB/s")
     print_fn(f"[native] Downloading {len(pending)} chunks ({MAX_WORKERS} concurrent)...")
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {}
-        for sha, offset, cb_original, fpath in pending:
+        pending_iter = iter(pending)
+        in_flight: dict = {}
+
+        def _submit_next() -> bool:
+            _wait_if_paused()
+            try:
+                sha, offset, cb_original, fpath = next(pending_iter)
+            except StopIteration:
+                return False
             fut = executor.submit(_download_one_chunk, sha, offset, cb_original, fpath)
-            futures[fut] = sha
+            in_flight[fut] = (sha, offset, cb_original, fpath)
+            return True
+
+        for _ in range(MAX_WORKERS):
+            if not _submit_next():
+                break
 
         total = len(pending)
-        for fut in concurrent.futures.as_completed(futures):
-            sha = futures[fut]
-            try:
-                result = fut.result()
-            except Exception:
-                result = -1
+        while in_flight:
+            _wait_if_paused()
+            done, _ = concurrent.futures.wait(
+                list(in_flight.keys()),
+                timeout=0.4,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                continue
+            for fut in done:
+                sha, offset, cb_original, fpath = in_flight.pop(fut)
+                try:
+                    result = fut.result()
+                except Exception:
+                    result = -1
 
-            if result < 0:
-                # Retry once on a different server
-                sha2, off2, cb2, fp2 = next(
-                    (s, o, c, p) for s, o, c, p in pending if s == sha
-                )
-                result = _download_one_chunk(sha2, off2, cb2, fp2)
+                if result < 0:
+                    result = _download_one_chunk(sha, offset, cb_original, fpath)
 
-            if result < 0:
-                http_client.close()
-                client.disconnect()
-                print_fn(f"[native] Failed chunk {sha[:16]}... ({total_done[0]}/{total} done)")
-                return False, total_bytes[0]
+                if result < 0:
+                    http_client.close()
+                    client.disconnect()
+                    print_fn(f"[native] Failed chunk {sha[:16]}... ({total_done[0]}/{total} done)")
+                    return False, total_bytes[0]
 
-            if total_done[0] % 100 == 0 or total_done[0] == total:
-                pct = (total_done[0] / total) * 100
-                print_fn(f"\r[native] {total_done[0]}/{total} chunks ({pct:.0f}%) | {skipped} cached | {total_bytes[0]:,} B")
+                if total_done[0] % 100 == 0 or total_done[0] == total:
+                    pct = (total_done[0] / total) * 100
+                    print_fn(
+                        f"\r[native] {total_done[0]}/{total} chunks ({pct:.0f}%) | {skipped} cached | {total_bytes[0]:,} B"
+                    )
+                _submit_next()
 
     http_client.close()
     client.disconnect()

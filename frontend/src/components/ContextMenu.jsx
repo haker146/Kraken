@@ -2,12 +2,23 @@ import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, Settings, Trash2, HardDrive, ChevronRight,
-  FolderOpen, RefreshCw, Play, Star
+  FolderOpen, RefreshCw, Play, Download,
 } from 'lucide-react';
+import { useAppStore } from '../store/useAppStore';
+import { bridge } from '../lib/bridge';
+import GameSettingsModal from './GameSettingsModal';
+import { gameNeedsDownload, installViaSteam } from '../lib/libraryActions';
 import './ContextMenu.css';
 
-export default function ContextMenu({ x, y, game, onClose, onSettings, onRemoveLibrary, onRemoveDisk, onFavorite }) {
+export default function ContextMenu({
+  x, y, game, onClose, onSettings, onRemoveLibrary, onRemoveDisk, onFavorite,
+  onPlay, onBrowseFiles, onVerifyFiles, onToggleAutoUpdate, onUpdateManifest
+}) {
   const ref = useRef(null);
+  const hasManifest = Boolean(game.in_library || game.manifest_only || game.installed);
+  const isInstalled = Boolean(game.installed);
+  const autoOn = Boolean(game.auto_update);
+  const showDanger = hasManifest;
 
   // Close on outside click / escape
   useEffect(() => {
@@ -25,10 +36,11 @@ export default function ContextMenu({ x, y, game, onClose, onSettings, onRemoveL
     };
   }, [onClose]);
 
-  // Keep menu inside viewport
+  const menuW = 268;
+  const menuH = 430;
   const style = {
-    left: Math.min(x, window.innerWidth - 220),
-    top: Math.min(y, window.innerHeight - 260),
+    left: Math.min(Math.max(8, x), window.innerWidth - menuW - 8),
+    top: Math.min(Math.max(8, y), window.innerHeight - menuH - 8),
   };
 
   return (
@@ -45,15 +57,55 @@ export default function ContextMenu({ x, y, game, onClose, onSettings, onRemoveL
       <div className="ctx-header">{game.name}</div>
 
       <div className="ctx-section">
-        <CtxItem icon={Play} label="Play" accent onClick={onClose} />
+        {gameNeedsDownload(game) ? (
+          <CtxItem
+            icon={Download}
+            label="Download"
+            sublabel="Opens Steam install dialog"
+            accent
+            onClick={() => { onPlay?.(); onClose(); }}
+          />
+        ) : (
+          <CtxItem icon={Play} label="Play" accent onClick={() => { onPlay?.(); onClose(); }} />
+        )}
       </div>
+
+      {hasManifest && game.has_update && (
+        <>
+          <div className="ctx-divider" />
+          <div className="ctx-section">
+            <CtxItem
+              icon={RefreshCw}
+              label="Update Manifest Now"
+              sublabel="Download latest manifest"
+              accent
+              onClick={() => { onUpdateManifest?.(); onClose(); }}
+            />
+          </div>
+        </>
+      )}
 
       <div className="ctx-divider" />
 
       <div className="ctx-section">
-        <CtxItem icon={Heart} label="Add to Favourites" onClick={() => { onFavorite?.(); onClose(); }} />
-        <CtxItem icon={FolderOpen} label="Browse Local Files" onClick={onClose} />
-        <CtxItem icon={RefreshCw} label="Verify Game Files" onClick={onClose} />
+        <CtxItem
+          icon={RefreshCw}
+          label="Auto-Update"
+          status={autoOn ? 'on' : 'off'}
+          sublabel={autoOn ? 'Currently enabled — click to disable' : 'Currently disabled — click to enable'}
+          onClick={() => { onToggleAutoUpdate?.(); }}
+        />
+        <CtxItem
+          icon={Heart}
+          label={game.isFavorite ? 'Remove from Favourites' : 'Add to Favourites'}
+          onClick={() => { onFavorite?.(); onClose(); }}
+        />
+        {isInstalled && (
+          <>
+            <CtxItem icon={FolderOpen} label="Browse Local Files" onClick={() => { onBrowseFiles?.(); onClose(); }} />
+            <CtxItem icon={RefreshCw} label="Verify Game Files" onClick={() => { onVerifyFiles?.(); onClose(); }} />
+          </>
+        )}
       </div>
 
       <div className="ctx-divider" />
@@ -76,28 +128,37 @@ export default function ContextMenu({ x, y, game, onClose, onSettings, onRemoveL
         />
       </div>
 
-      <div className="ctx-divider" />
+      {showDanger && (
+        <>
+          <div className="ctx-divider" />
 
-      <div className="ctx-section">
-        <CtxItem
-          icon={Trash2}
-          label="Remove from Library"
-          danger
-          onClick={() => { onRemoveLibrary?.(); onClose(); }}
-        />
-        <CtxItem
-          icon={HardDrive}
-          label="Uninstall Game"
-          sublabel="Removes from library and disk"
-          danger
-          onClick={() => { onRemoveDisk?.(); onClose(); }}
-        />
-      </div>
+          <div className="ctx-section">
+            {hasManifest && (
+              <CtxItem
+                icon={Trash2}
+                label="Remove from Library"
+                sublabel="Removes manifest, keeps files on disk"
+                danger
+                onClick={() => { onRemoveLibrary?.(); onClose(); }}
+              />
+            )}
+            {isInstalled && (
+              <CtxItem
+                icon={HardDrive}
+                label="Uninstall Game"
+                sublabel="Removes from library and disk"
+                danger
+                onClick={() => { onRemoveDisk?.(); onClose(); }}
+              />
+            )}
+          </div>
+        </>
+      )}
     </motion.div>
   );
 }
 
-function CtxItem({ icon: Icon, label, sublabel, danger, accent, onClick }) {
+function CtxItem({ icon: Icon, label, sublabel, danger, accent, status, onClick }) {
   return (
     <button
       className={`ctx-item ${danger ? 'danger' : ''} ${accent ? 'accent' : ''}`}
@@ -105,7 +166,12 @@ function CtxItem({ icon: Icon, label, sublabel, danger, accent, onClick }) {
     >
       {Icon && <Icon size={14} className="ctx-item-icon" />}
       <div className="ctx-item-text">
-        <span>{label}</span>
+        <span className="ctx-item-label">
+          <span>{label}</span>
+          {status && (
+            <span className={`ctx-status ${status}`}>{status === 'on' ? 'ON' : 'OFF'}</span>
+          )}
+        </span>
         {sublabel && <span className="ctx-item-sub">{sublabel}</span>}
       </div>
     </button>
@@ -139,5 +205,99 @@ function CtxSubmenu({ icon: Icon, label, children }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export function GameContextHost() {
+  const gameCtx = useAppStore((s) => s.gameCtx);
+  const settingsGame = useAppStore((s) => s.settingsGame);
+  const favorites = useAppStore((s) => s.favorites);
+  const closeGameCtx = useAppStore((s) => s.closeGameCtx);
+  const setSettingsGame = useAppStore((s) => s.setSettingsGame);
+  const removeGame = useAppStore((s) => s.removeGame);
+  const patchGame = useAppStore((s) => s.patchGame);
+  const toggleFavorite = useAppStore((s) => s.toggleFavorite);
+
+  useEffect(() => {
+    const blockNative = (e) => {
+      if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      if (e.target?.closest?.('.home-cover-card, .home-wide-card, .lib-card, .store-row, .gh-cover, .gh-sidebar')) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('contextmenu', blockNative, true);
+    return () => document.removeEventListener('contextmenu', blockNative, true);
+  }, []);
+
+  const game = gameCtx?.game;
+  const play = (g) => {
+    if (!g) return;
+    if (gameNeedsDownload(g)) installViaSteam(g.app_id);
+    else if (window.Bridge?.launch_game) window.Bridge.launch_game(String(g.app_id));
+  };
+  const browse = (g) => { if (g && window.Bridge?.open_game_folder) window.Bridge.open_game_folder(String(g.app_id), g.path || ''); };
+  const verify = (g) => { if (g && window.Bridge?.validate_game_files) window.Bridge.validate_game_files(String(g.app_id)); };
+  const removeManifest = (g) => {
+    if (!g) return;
+    removeGame(g.app_id);
+    if (window.Bridge?.delete_game) window.Bridge.delete_game(String(g.app_id), g.path || '', 'manifest');
+  };
+  const uninstall = (g) => {
+    if (!g) return;
+    if (!window.confirm(`Are you sure you want to uninstall "${g.name}"?\n\nThis will permanently delete all game files from disk and remove the manifest from Steam.`)) return;
+    removeGame(g.app_id);
+    if (window.Bridge?.delete_game) window.Bridge.delete_game(String(g.app_id), g.path || '', 'full');
+  };
+
+  useEffect(() => {
+    return bridge.on('task_finished', (json) => {
+      try {
+        const evt = typeof json === 'string' ? JSON.parse(json) : json;
+        if (evt.task !== 'delete_game') return;
+        if (!evt.success && evt.app_id) {
+          useAppStore.getState().clearPendingRemoved(evt.app_id);
+        }
+        try { window.Bridge?.load_library?.(); } catch { /* ignore */ }
+      } catch { /* ignore */ }
+    });
+  }, []);
+
+  return (
+    <>
+      <AnimatePresence>
+        {gameCtx && game && (
+          <ContextMenu
+            x={gameCtx.x}
+            y={gameCtx.y}
+            game={{ ...game, isFavorite: favorites.includes(String(game.app_id)) }}
+            onClose={closeGameCtx}
+            onSettings={() => setSettingsGame(game)}
+            onPlay={() => play(game)}
+            onBrowseFiles={() => browse(game)}
+            onVerifyFiles={() => verify(game)}
+            onToggleAutoUpdate={() => {
+              const next = !Boolean(game.auto_update);
+              if (window.Bridge?.set_game_auto_update) window.Bridge.set_game_auto_update(String(game.app_id), next);
+              patchGame(game.app_id, { auto_update: next });
+            }}
+            onUpdateManifest={() => {
+              if (window.Bridge?.check_game_update) window.Bridge.check_game_update(String(game.app_id));
+            }}
+            onFavorite={() => toggleFavorite(game.app_id)}
+            onRemoveLibrary={() => removeManifest(game)}
+            onRemoveDisk={() => uninstall(game)}
+          />
+        )}
+      </AnimatePresence>
+      {settingsGame && (
+        <GameSettingsModal
+          game={settingsGame}
+          onClose={() => setSettingsGame(null)}
+          onAutoUpdateChange={(appId, val) => patchGame(appId, { auto_update: val })}
+          onRemoveLibrary={() => { removeManifest(settingsGame); setSettingsGame(null); }}
+          onUninstall={() => { uninstall(settingsGame); setSettingsGame(null); }}
+        />
+      )}
+    </>
   );
 }

@@ -81,7 +81,7 @@ Full changelog: [CHANGELOG.md](CHANGELOG.md)
 
 [Fixes & Bypasses](docs/CRACK_FIX.md) – Searching and applying community-maintained fixes from the data branch catalog. No API key, no account.
 
-[Crack catalog — Fixes & Bypasses source](docs/CRACK_FILES.md) – How Kraken fetches `crackfiles.json` from the `Konungs-skuggsjá` branch, and a breakdown of every field in the fix list.
+[Crack catalog — Fixes & Bypasses source](docs/CRACK_FILES.md) – How Kraken fetches `crackfiles.json` from the `ship-hold` release / `Ship-hold` branch, and a breakdown of every field in the fix list.
 
 [DLC Unlockers](docs/dlc_unlockers/README.md) – Using DLC unlockers (CreamInstaller-style).
 

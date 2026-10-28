@@ -216,11 +216,37 @@ class Settings(Enum):
     STEAM_WEB_API_KEY = SettingItem("steam_web_api_key", "Steam Web API Key", True, str)
     PLAY_MUSIC = SettingItem("play_music", "Play Music", False, bool)
     THEME = SettingItem("theme", "Theme", False, str)
+    UI_THEME = SettingItem("ui_theme", "React UI Theme (default / hogwarts / cyberpunk / rdr2 / indiana)", False, str)
     CUSTOM_BACKGROUND_IMAGE = SettingItem("custom_background_image", "Custom UI Background Image", False, str)
     CUSTOM_ACCENT_COLOR = SettingItem("custom_accent_color", "Custom UI Accent Color", False, str)
     ONLINE_FIX_NEW_SYSTEM_SHOWN = SettingItem("online_fix_new_system_shown", "Online-Fix New System Shown", False, bool)
     PARALLEL_DOWNLOADS = SettingItem("parallel_downloads", "Parallel Download Workers", False, str)
     DOWNLOAD_CONCURRENCY = SettingItem("download_concurrency", "Max concurrent chunk downloads (8-64)", False, str)
+    DOWNLOAD_SPEED_LIMIT = SettingItem(
+        "download_speed_limit",
+        "Native download speed limit in KB/s (0 = unlimited)",
+        False,
+        str,
+    )
+    MANIFEST_SOURCES = SettingItem(
+        "manifest_sources",
+        "Manifest download source order (JSON list of {id, enabled})",
+        False,
+        str,
+    )
+    TUTORIAL_SEEN = SettingItem("tutorial_seen", "First-run tutorial completed", False, bool)
+    LAST_STEAM_CLIENT_SHA = SettingItem(
+        "last_steam_client_sha",
+        "Last seen steamclient64.dll SHA (managed automatically)",
+        False,
+        str,
+    )
+    STEAM_RESTART_NEEDED = SettingItem(
+        "steam_restart_needed",
+        "Prompt to restart Steam after a client/LumaCore pattern update",
+        False,
+        bool,
+    )
     DEPOT_DOWNLOAD_TIMEOUT = SettingItem("depot_download_timeout", "DDMod depot timeout in minutes (0 = no limit)", False, str)
     BACKUP_RETENTION = SettingItem("backup_retention", "Backup Retention Count", False, str)
     ENABLE_NOTIFICATIONS = SettingItem("enable_notifications", "Enable Desktop Notifications", False, bool)
@@ -233,6 +259,8 @@ class Settings(Enum):
     USE_MANIFEST_PINS = SettingItem("use_manifest_pins", "Use Pinned Manifest Versions from Lua", False, bool)
     MANIFEST_PINS_ASKED = SettingItem("manifest_pins_asked", "Manifest Pin Prompt Shown (managed automatically)", False, bool)
 
+    AUTO_CHECK_MANIFEST_UPDATES = SettingItem("auto_check_manifest_updates", "Auto-check game updates on startup", False, bool)
+    GAME_AUTO_UPDATE_MAP = SettingItem("game_auto_update_map", "Per-game auto update settings (JSON map)", False, dict)
     MANIFESTHUB_API_KEY = SettingItem("manifesthub_api_key", "ManifestHub API Key (manifesthub2.filegear-sg.me, 24h)", True, str)
     MANIFESTHUB_KEY_EXPIRY = SettingItem("manifesthub_key_expiry", "ManifestHub Key Expiry (UTC epoch, managed automatically)", False, str)
     LANGUAGE = SettingItem("language", "Language (Requires Restart)", False, list(SupportedLanguages))

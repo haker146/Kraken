@@ -55,7 +55,7 @@ const OS_OPTIONS = [
   { id: 'mac',     label: 'macOS' },
 ];
 
-export default function DownloadSourceModal({ appId, gameName, onClose }) {
+export default function DownloadSourceModal({ appId, gameName, onClose, onStartDownload }) {
   const [selected, setSelected]       = useState('oureveryday');
   const [os, setOs]                   = useState('windows');
   const [luaPath, setLuaPath]         = useState('');
@@ -126,6 +126,7 @@ export default function DownloadSourceModal({ appId, gameName, onClose }) {
     }
     setError('');
     setDownloading(true);
+    if (onStartDownload) onStartDownload();
     window.Bridge.download_game_with_source(
       String(appId),
       selected,

@@ -17,6 +17,7 @@ const isElectron = typeof window !== 'undefined' && typeof window.KrakenAPI !== 
 
 // Sync slots that return a value directly (pyqtSlot(result=str))
 const SYNC_SLOTS = new Set([
+  'get_home_feed_cached',
   'get_steam_client_status',
   'get_catalog_status',
   'get_kraken_favorites',
@@ -24,8 +25,11 @@ const SYNC_SLOTS = new Set([
   'suggest_store_games',
   'get_app_summaries',
   'get_all_settings',
+  'get_settings',
   'get_setting',
   'set_setting',
+  'get_secret_setting',
+  'set_secret_setting',
   'get_platform',
   'get_app_version',
   'get_bundled_tool_path',
@@ -35,6 +39,20 @@ const SYNC_SLOTS = new Set([
   'get_disk_usage',
   'get_storage_paths',
   'get_gse_identity',
+  'steam_updates_get_state',
+  'steam_updates_set_state',
+  'lumacore_check_update',
+  'app_update_check',
+  'get_game_auto_update',
+  'set_game_auto_update',
+  'run_autochecker',
+  'get_recent_logs',
+  'get_log_file_path',
+  'clear_logs',
+  'get_crack_info',
+  'get_unlock_recipe',
+  'download_queue_get_state',
+  'remove_provider_key',
 ]);
 
 class KrakenBridge {
@@ -61,7 +79,7 @@ class KrakenBridge {
     const signals = [
       'task_finished', 'download_progress', 'search_results',
       'game_branches_ready', 'download_queue_state', 'task_progress',
-      'log_message', 'lc_progress', 'depot_history_results',
+      'log_message', 'lc_progress', 'depot_history_results', 'ui_notification',
     ];
     for (const sig of signals) {
       if (bridgeObj[sig]?.connect) {

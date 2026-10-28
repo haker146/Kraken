@@ -161,13 +161,20 @@ async def get_request(
 
 
 def get_request_raw(url):
-    while True:
-        try:
-            return httpx.get(url, timeout=120).content
-        except httpx.HTTPError as e:
-            print(f"Network error: {repr(e)}")
-            if not prompt_confirm("Try again?"):
-                return None
+    try:
+        resp = httpx.get(url, timeout=120)
+        if resp.status_code != 200 or not resp.content or len(resp.content) < 16:
+            logger.debug(
+                "get_request_raw empty/failed HTTP %s size=%s url=%s",
+                getattr(resp, "status_code", "?"),
+                len(getattr(resp, "content", b"") or b""),
+                url,
+            )
+            return None
+        return resp.content
+    except httpx.HTTPError as e:
+        logger.debug("get_request_raw error: %s", e)
+        return None
 
 
 async def _wait_for_enter():
@@ -226,10 +233,13 @@ async def get_gmrc(manifest_id: Union[str, int], silent: bool = False):
     # source so it doesn't get scraped by every random analyzer that runs
     # against SteaMidra. The two HTTPS fallbacks below cover the gmrc
     # downtime window users have been hitting and are also kept encrypted.
-    template_url = b64_decrypt(
-        b'tkRhMNucVUvrymrfjAL8I0riINm/U76wgUJnmsjiaUs=',
-        b'4R66BAMzqmlqisU/9Wwi5bSG2D/zWVuron4mRuw5gCFi+jPxwvqgHOvThx5BpLJAK23I5KABAm7tXlweO3lkEQk5OXrJUjH8zNnyKNv+tYDQE9/8teSpvA==',
-    )
+    try:
+        template_url = b64_decrypt(
+            b'tkRhMNucVUvrymrfjAL8I0riINm/U76wgUJnmsjiaUs=',
+            b'4R66BAMzqmlqisU/9Wwi5bSG2D/zWVuron4mRuw5gCFi+jPxwvqgHOvThx5BpLJAK23I5KABAm7tXlweO3lkEQk5OXrJUjH8zNnyKNv+tYDQE9/8teSpvA==',
+        )
+    except Exception:
+        template_url = "https://manifest.opensteamtool.com/{manifest_id}"
     url = template_url.format(manifest_id=manifest_id)
 
     # HTTPS-first fallback templates. Same wire shape (depot-key
@@ -246,6 +256,11 @@ async def get_gmrc(manifest_id: Union[str, int], silent: bool = False):
             fallback_urls.append(tpl.format(manifest_id=manifest_id))
         except Exception:
             continue
+    if not fallback_urls:
+        fallback_urls = [
+            f"https://manifest.steam.run/api/manifest/{manifest_id}",
+            f"http://gmrc.wudrm.com/manifest/{manifest_id}",
+        ]
 
     print("Getting request code...")
 
@@ -254,20 +269,16 @@ async def get_gmrc(manifest_id: Union[str, int], silent: bool = False):
         **MANIFEST_REQUEST_CODE_HEADERS,
     }
 
-    # Sanity check on returned bodies. Real responses are an all-digit
-    # decimal request code, usually 16-22 chars. Anything else (HTML
-    # error page, ad redirect, MITM payload injection) gets rejected
-    # before being handed back to the caller. The http gmrc endpoint
-    # is the obvious risk since it's not TLS, but applying the same
-    # guard to the https fallbacks is free and catches captive-portal
-    # injection too.
     result = None
 
-    # --- Primary endpoint ---
-    # The encrypted URL is hidden on purpose, no logging it in plain text
-    # via the debug log, hence redact_url=True. Already handles "the link
-    # leaked into live log" case.
-    if sys.platform != "win32":
+    # In GUI mode or when stdin is not a console TTY, do direct async call
+    is_tty = False
+    try:
+        is_tty = sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty()
+    except Exception:
+        is_tty = False
+
+    if not is_tty or sys.platform != "win32":
         result = await get_request(url, headers=headers, redact_url=True)
     else:
         request_task = asyncio.create_task(get_request(url, headers=headers, redact_url=True))

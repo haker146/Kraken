@@ -32,6 +32,7 @@ from typing import cast
 logger = logging.getLogger(__name__)
 
 SETTINGS_FILE = sff_data_dir() / "settings.bin"
+SETTINGS_JSON_FILE = sff_data_dir() / "settings.json"
 SETTINGS_VERSION = "1.1.0"  # For migration tracking
 
 
@@ -56,29 +57,46 @@ def _atomic_write_settings(data: dict) -> None:
         except Exception:
             pass
 
+    # Mirror to human-readable settings.json so settings survive test wipes and key shifts
+    try:
+        json_dict = {}
+        for k, v in data.items():
+            if isinstance(v, bytes):
+                try:
+                    dec = keyring_decrypt(v)
+                    json_dict[k] = dec if dec is not None else v.hex()
+                except Exception:
+                    json_dict[k] = v.hex()
+            else:
+                json_dict[k] = v
+        SETTINGS_JSON_FILE.write_text(json.dumps(json_dict, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        logger.debug("Failed to write settings.json backup: %s", e)
+
 
 def load_all_settings():
     global _SETTINGS_CACHE
     if _SETTINGS_CACHE is not None:
         return _SETTINGS_CACHE
 
+    settings = {}
     try:
-        SETTINGS_FILE.touch(exist_ok=True)
-        with SETTINGS_FILE.open("rb") as f:
-            data = f.read()
+        if SETTINGS_FILE.exists() and SETTINGS_FILE.stat().st_size > 0:
+            with SETTINGS_FILE.open("rb") as f:
+                data = f.read()
+            if data:
+                settings = cast("dict[Any, Any]", msgpack.unpackb(data))  # type: ignore
     except Exception:
-        logger.exception("Failed to read settings file — resetting to defaults")
-        _SETTINGS_CACHE = {}
-        return _SETTINGS_CACHE
-    try:
-        settings = (
-            cast("dict[Any, Any]", msgpack.unpackb(data))  # type: ignore
-            if data
-            else {}
-        )
-    except Exception:
-        logger.exception("Failed to unpack settings — resetting to defaults")
-        settings = {}
+        logger.exception("Failed to read settings file")
+
+    # If settings.bin was empty or failed, restore from settings.json
+    if not settings and SETTINGS_JSON_FILE.exists():
+        try:
+            with open(SETTINGS_JSON_FILE, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+                logger.info("Restored settings from %s", SETTINGS_JSON_FILE)
+        except Exception as e:
+            logger.debug("Failed to restore from settings.json: %s", e)
 
     settings = migrate_settings(settings)
     _SETTINGS_CACHE = settings
@@ -89,10 +107,25 @@ def get_setting(key):
     value = load_all_settings().get(key.key_name)
     if value and key.hidden:
         try:
-            return keyring_decrypt(value)
+            decrypted = keyring_decrypt(value)
+            if decrypted is not None:
+                return decrypted
         except Exception:
-            logger.warning("Failed to decrypt hidden setting %s — encryption key may have changed", key.clean_name)
-            return None
+            pass
+        # Fallback 1: if stored as plaintext or key was already plain string
+        if isinstance(value, str) and value:
+            return value
+        # Fallback 2: check settings.json backup
+        try:
+            if SETTINGS_JSON_FILE.exists():
+                with open(SETTINGS_JSON_FILE, "r", encoding="utf-8") as f:
+                    b_data = json.load(f)
+                    if key.key_name in b_data and b_data[key.key_name]:
+                        return str(b_data[key.key_name])
+        except Exception:
+            pass
+        logger.warning("Failed to decrypt hidden setting %s — encryption key may have changed", key.clean_name)
+        return None
     return value
 
 

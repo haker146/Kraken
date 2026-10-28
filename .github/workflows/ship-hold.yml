@@ -1,0 +1,51 @@
+name: Publish Ship-hold catalog
+
+on:
+  push:
+    branches:
+      - Ship-hold
+    paths:
+      - crackfiles.json
+      - .github/workflows/ship-hold.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish crackfiles.json
+    runs-on: ubuntu-latest
+    # Push events load this workflow from Ship-hold. Keep a copy on main
+    # so the process is visible next to the app CI, but never run it there.
+    if: github.ref == 'refs/heads/Ship-hold' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout Ship-hold
+        uses: actions/checkout@v4
+        with:
+          ref: Ship-hold
+
+      - name: Confirm catalog file
+        run: |
+          test -f crackfiles.json
+          python3 - <<'PY'
+          import json, pathlib
+          data = json.loads(pathlib.Path("crackfiles.json").read_text(encoding="utf-8"))
+          if not isinstance(data, list):
+              raise SystemExit("crackfiles.json must be a JSON array")
+          print(f"catalog entries: {len(data)}")
+          PY
+
+      - name: Publish catalog release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ship-hold
+          name: Ship hold catalog
+          files: crackfiles.json
+          make_latest: false
+          prerelease: false
+          body: |
+            Latest `crackfiles.json` from the `Ship-hold` branch.
+
+            This is the catalog Kraken fetches. It is not an app release.
+            App builds stay on `/releases/latest` (`v*` tags).

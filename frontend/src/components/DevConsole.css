@@ -1,0 +1,197 @@
+/* language: CSS, file: DevConsole.css */
+.dev-console-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: devFadeIn 0.15s ease-out;
+}
+
+@keyframes devFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dev-console-window {
+  width: 900px;
+  max-width: 95vw;
+  height: 600px;
+  max-height: 85vh;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 20px rgba(56, 189, 248, 0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.dev-console-header {
+  height: 42px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  user-select: none;
+}
+
+.dev-console-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #38bdf8;
+  letter-spacing: 0.5px;
+}
+
+.dev-console-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.dev-console-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.dev-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #c9d1d9;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dev-btn:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.dev-btn-close {
+  background: transparent;
+  border: none;
+  color: #8b949e;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.dev-btn-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.dev-console-body {
+  flex: 1;
+  padding: 14px 18px;
+  overflow-y: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #e6edf3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dev-console-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dev-console-line.command {
+  color: #38bdf8;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.dev-console-line.success {
+  color: #4ade80;
+}
+
+.dev-console-line.warning {
+  color: #facc15;
+}
+
+.dev-console-line.error {
+  color: #f87171;
+}
+
+.dev-console-line.info {
+  color: #94a3b8;
+}
+
+.dev-console-input-row {
+  height: 48px;
+  background: #161b22;
+  border-top: 1px solid #30363d;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 10px;
+}
+
+.dev-prompt {
+  color: #22c55e;
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dev-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f0f6fc;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.dev-cookie-dialog {
+  padding: 16px;
+  background: #1c2128;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dev-cookie-dialog textarea {
+  width: 100%;
+  height: 60px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 8px;
+  border-radius: 4px;
+  resize: none;
+}

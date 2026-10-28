@@ -37,8 +37,8 @@ How SteaMidra searches online-fix.me and opens the selected result in your brows
 [Fixes & Bypasses](CRACK_FIX.md)  
 Using the community fix list as an alternative or supplement to online-fix.me. No account required.
 
-[CrakFiles — Fix list source](CRACK_FILES.md)  
-What the CrakFiles repository is, how SteaMidra fetches crackfiles.json, and a breakdown of every field including source_crack and original_download.
+[Crack catalog — Fix list source](CRACK_FILES.md)  
+How Kraken fetches `crackfiles.json` from the `ship-hold` release / `Ship-hold` branch, and a breakdown of every field including source_crack and original_download.
 
 [DLC Unlockers](dlc_unlockers/README.md)  
 Using SteaMidra to install DLC unlockers (CreamInstaller-style). Credits for CreamInstaller are on that page.

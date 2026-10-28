@@ -532,7 +532,9 @@ def get_ryuu(dest, app_id, depotcache=None, request_update=None, branch=None, fi
     branch = (branch or "").strip() or "public"
     file_type = (file_type or "").strip().lower() or "zip"
 
-    max_attempts = 3
+    from sff.ui.prompts import has_gui_backend
+    gui = has_gui_backend()
+    max_attempts = 1 if gui else 3
     attempt = 0
     while attempt < max_attempts:
         reseller_key = get_setting(Settings.RYUU_KEY) or ""
@@ -540,18 +542,15 @@ def get_ryuu(dest, app_id, depotcache=None, request_update=None, branch=None, fi
         is_premium = False
 
         if reseller_key and premium_key:
-            choice = prompt_select(
-                "Which Ryuu key type do you want to use?",
-                [("Reseller (auth_code)", "reseller"),
-                 ("Premium (X-Auth-Key)", "premium")],
-                cancellable=False,
-            )
-            is_premium = (choice == "premium")
+            is_premium = True
         elif premium_key:
             is_premium = True
         elif reseller_key:
             is_premium = False
         else:
+            if gui:
+                print(Fore.YELLOW + "No Ryuu API key in Settings. Skipping Ryuu." + Style.RESET_ALL)
+                return None
             choice = prompt_select(
                 "What type of Ryuu key do you have?",
                 [("Reseller key", "reseller"),
@@ -564,6 +563,9 @@ def get_ryuu(dest, app_id, depotcache=None, request_update=None, branch=None, fi
 
         ryuu_key = premium_key if is_premium else reseller_key
         if not ryuu_key:
+            if gui:
+                print(Fore.YELLOW + "No Ryuu API key in Settings. Skipping Ryuu." + Style.RESET_ALL)
+                return None
             prompt_msg = (
                 "Paste your Ryuu premium API key:"
                 if is_premium else
@@ -600,8 +602,8 @@ def get_ryuu(dest, app_id, depotcache=None, request_update=None, branch=None, fi
 
         attempt += 1
         print(Fore.RED + f"ryuu: both endpoints failed (Attempt {attempt}/{max_attempts})" + Style.RESET_ALL)
-        if attempt >= max_attempts:
-            print(Fore.RED + "Ryuu: Max attempts reached. Check your API key in Settings." + Style.RESET_ALL)
+        if gui or attempt >= max_attempts:
+            print(Fore.RED + "Ryuu: failed. Update the key in Settings if it expired." + Style.RESET_ALL)
             return None
         if prompt_confirm("Do you want to enter a new API key?"):
             set_setting(Settings.RYUU_KEY, "")
@@ -680,6 +682,10 @@ def get_depotbox(dest, app_id, depotbox_key=None):
         from sff.core.storage.settings import get_setting
         depotbox_key = get_setting(Settings.DEPOTBOX_KEY)
         if not depotbox_key:
+            from sff.ui.prompts import has_gui_backend
+            if has_gui_backend():
+                print(Fore.YELLOW + "No DepotBox API key in Settings. Skipping DepotBox." + Style.RESET_ALL)
+                return None
             depotbox_key = prompt_secret(
                 "Paste your DepotBox API key here: ",
                 lambda x: len(x.strip()) >= 20,
@@ -690,18 +696,21 @@ def get_depotbox(dest, app_id, depotbox_key=None):
             ).strip()
             set_setting(Settings.DEPOTBOX_KEY, depotbox_key)
 
-    # Check rate limit plan
     from sff.core.storage.settings import get_setting
     rate_limit_str = get_setting(Settings.DEPOTBOX_RATE_LIMIT) or ""
     rate_limit = int(rate_limit_str) if rate_limit_str.strip().isdigit() else None
     if rate_limit is None:
-        from sff.ui.prompts import prompt_select
-        plan = prompt_select(
-            "Select your DepotBox plan:",
-            [("Starter — 60 requests / minute", 60), ("Pro — 120 requests / minute", 120)],
-            cancellable=False,
-        )
-        rate_limit = plan if plan else 60
+        from sff.ui.prompts import has_gui_backend
+        if has_gui_backend():
+            rate_limit = 60
+        else:
+            from sff.ui.prompts import prompt_select
+            plan = prompt_select(
+                "Select your DepotBox plan:",
+                [("Starter — 60 requests / minute", 60), ("Pro — 120 requests / minute", 120)],
+                cancellable=False,
+            )
+            rate_limit = plan if plan else 60
         set_setting(Settings.DEPOTBOX_RATE_LIMIT, str(rate_limit))
 
     headers = {"X-API-Key": depotbox_key}
@@ -711,7 +720,9 @@ def get_depotbox(dest, app_id, depotbox_key=None):
         resp = httpx.get(url, headers=headers, timeout=(10, 300), follow_redirects=True)
         if resp.status_code == 401:
             print(Fore.RED + "DepotBox: Invalid API key." + Style.RESET_ALL)
-            set_setting(Settings.DEPOTBOX_KEY, "")
+            from sff.ui.prompts import has_gui_backend
+            if not has_gui_backend():
+                set_setting(Settings.DEPOTBOX_KEY, "")
             return None
         if resp.status_code == 403:
             print(Fore.RED + f"DepotBox: {resp.text[:300]}" + Style.RESET_ALL)

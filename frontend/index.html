@@ -4,11 +4,100 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
     <title>Kraken</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: #060810; overflow: hidden; }
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 18px; background: #060810; color: #e2e8f0;
+        font-family: Inter, Segoe UI, system-ui, sans-serif;
+        transition: opacity .35s ease;
+      }
+      #boot-splash.boot-out { opacity: 0; pointer-events: none; }
+      #boot-splash .boot-logo-wrap {
+        position: relative; width: 168px; height: 168px;
+        animation: boot-bob 2.4s ease-in-out infinite;
+        filter: drop-shadow(0 0 22px rgba(167, 139, 250, 0.35));
+      }
+      #boot-splash .boot-logo {
+        width: 128px; height: 128px; object-fit: contain;
+        position: absolute; left: 20px; top: 20px; z-index: 2;
+      }
+      #boot-splash .boot-tentacle {
+        position: absolute; border: 3px solid transparent;
+        border-top-color: #a78bfa; border-radius: 50%;
+        opacity: .7;
+      }
+      #boot-splash .t1 { width: 150px; height: 110px; left: 8px; top: 48px; animation: boot-t1 2.2s ease-in-out infinite; }
+      #boot-splash .t2 { width: 120px; height: 90px; left: -8px; top: 28px; border-top-color: #38bdf8; animation: boot-t2 2.6s ease-in-out infinite; }
+      #boot-splash .t3 { width: 130px; height: 80px; right: -6px; top: 56px; animation: boot-t1 2.4s ease-in-out infinite reverse; }
+      #boot-splash .boot-mark {
+        font-size: 26px; font-weight: 800; letter-spacing: .42em;
+        padding-left: .42em; color: #f1f5f9;
+      }
+      #boot-splash .boot-bar {
+        width: 220px; height: 8px; border-radius: 99px;
+        background: rgba(167, 139, 250, .16);
+        border: 1px solid rgba(167, 139, 250, .28);
+        overflow: hidden;
+      }
+      #boot-splash .boot-bar-fill {
+        height: 100%; width: 12%;
+        background: linear-gradient(90deg, #38bdf8, #a78bfa);
+        border-radius: 99px;
+        animation: boot-bar 7.2s ease-out forwards;
+      }
+      #boot-splash .boot-msg { font-size: 13px; color: #94a3b8; letter-spacing: .04em; }
+      @keyframes boot-bob { 0%,100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-7px) rotate(3deg); } }
+      @keyframes boot-t1 { 0%,100% { transform: rotate(-12deg); } 50% { transform: rotate(10deg); } }
+      @keyframes boot-t2 { 0%,100% { transform: rotate(8deg); } 50% { transform: rotate(-14deg); } }
+      @keyframes boot-bar { from { width: 10%; } to { width: 88%; } }
+    </style>
   </head>
   <body>
+    <div id="boot-splash">
+      <div class="boot-logo-wrap">
+        <span class="boot-tentacle t1"></span>
+        <span class="boot-tentacle t2"></span>
+        <span class="boot-tentacle t3"></span>
+        <img class="boot-logo" src="/kraken.png" alt="Kraken" />
+      </div>
+      <div class="boot-mark">KRAKEN</div>
+      <div class="boot-bar"><div class="boot-bar-fill"></div></div>
+      <div class="boot-msg">Loading…</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      (function () {
+        try {
+          var known = { default: 1, hogwarts: 1, cyberpunk: 1, rdr2: 1, indiana: 1 };
+          var theme = localStorage.getItem('kraken_ui_theme') || 'default';
+          document.documentElement.setAttribute('data-theme', known[theme] ? theme : 'default');
+        } catch (e) {}
+        var ids = ['1593500','1245620','1091500','1174180','1086940','990080','2677660'];
+        ids.forEach(function (id) {
+          var img = new Image();
+          img.referrerPolicy = 'no-referrer';
+          img.src = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/library_hero.jpg';
+        });
+        setTimeout(function () {
+          if (window.__KRAKEN_BOOTED) return;
+          var msg = document.querySelector('#boot-splash .boot-msg');
+          if (msg) msg.textContent = 'Still loading…';
+        }, 8000);
+      })();
+    </script>
   </body>
 </html>

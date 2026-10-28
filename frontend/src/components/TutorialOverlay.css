@@ -1,0 +1,77 @@
+.tut-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(4, 6, 12, 0.72);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.tut-card {
+  width: min(520px, calc(100vw - 32px));
+  padding: 26px 24px 18px;
+  border-radius: 18px;
+  background: #0c1220;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.tut-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #38bdf8;
+  margin-bottom: 8px;
+}
+.tut-card h3 {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.tut-card p {
+  font-size: 14px;
+  line-height: 1.55;
+  color: #94a3b8;
+}
+.tut-demo {
+  margin: 14px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px dashed rgba(56, 189, 248, 0.28);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 700;
+}
+.tut-dots {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0 14px;
+}
+.tut-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: rgba(148, 163, 184, 0.35);
+}
+.tut-dots span.is-on {
+  width: 18px;
+  background: #38bdf8;
+}
+.tut-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.tut-ghost, .tut-next {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.tut-ghost { color: #94a3b8; }
+.tut-next {
+  background: #38bdf8;
+  color: #041018;
+}

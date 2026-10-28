@@ -31,6 +31,7 @@ import shutil
 import ssl as _ssl
 import subprocess
 import sys
+import time
 import unicodedata as _ud
 from functools import lru_cache
 import urllib
@@ -125,6 +126,9 @@ from sff.gui.bridges.misc_bridge import (
     _bridge_get_disk_usage,
     _bridge_get_fix_game_list,
     _bridge_get_game_branches,
+    _bridge_get_game_auto_update,
+    _bridge_set_game_auto_update,
+    _bridge_run_autochecker,
     _bridge_get_game_list,
     _bridge_get_game_update_override,
     _bridge_get_game_update_state,
@@ -142,6 +146,7 @@ from sff.gui.bridges.misc_bridge import (
     _bridge_import_depot_manifest_html,
     _bridge_import_settings_file,
     _bridge_install_lumacore,
+    _bridge_install_game,
     _bridge_launch_game,
     _bridge_let_updates_add_game,
     _bridge_let_updates_apply,
@@ -156,7 +161,11 @@ from sff.gui.bridges.misc_bridge import (
     _bridge_open_exe_file_dialog,
     _bridge_open_file_dialog,
     _bridge_open_folder_scan,
+    _bridge_open_game_folder,
     _bridge_open_log_window,
+    _bridge_get_recent_logs,
+    _bridge_clear_logs,
+    _bridge_get_log_file_path,
     _bridge_open_lua_file_dialog,
     _bridge_open_manifest_folder_dialog,
     _bridge_open_url,
@@ -208,7 +217,8 @@ from sff.gui.bridges.store_bridge import (
     _bridge_set_whats_new_seen,
     _bridge_store_disconnect,
     _bridge_update_store_lists,
-    _bridge_warm_store_metadata
+    _bridge_warm_store_metadata,
+    _bridge_play_game_trailer
 )
 # Bridge module imports — thin delegates to domain-specific bridge files
 
@@ -343,6 +353,11 @@ def _prefetch_crack_buildids():
     prefetch()
 
 
+def _prefetch_home_feed():
+    from sff.core.hero_fetcher import fetch_home_feed
+    fetch_home_feed()
+
+
 def _get_crack_buildid_map() -> dict[str, str]:
     """Return cached crack buildid map. Never blocks — returns empty if not ready."""
     from sff.network.crack_catalog import get_buildid_map
@@ -385,28 +400,131 @@ def _latest_public_buildid_from_cache(app_id):
     return ""
 
 
+def _acf_state_for_app(steam_path, app_id):
+    """Read appmanifest_{id}.acf across Steam libraries."""
+    try:
+        from sff.core.storage.vdf import get_steam_libs, vdf_load
+        if not steam_path or not app_id:
+            return {}
+        for lib in get_steam_libs(steam_path):
+            acf = lib / "steamapps" / f"appmanifest_{app_id}.acf"
+            if not acf.is_file():
+                continue
+            state = vdf_load(acf).get("AppState") or {}
+            installdir = str(state.get("installdir") or "").strip()
+            return {
+                "installed": True,
+                "buildid": str(state.get("buildid") or "").strip(),
+                "name": str(state.get("name") or "").strip(),
+                "installdir": installdir,
+                "path": str(lib / "steamapps" / "common" / installdir) if installdir else "",
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def _lua_path_for_app(steam_path, app_id):
+    try:
+        from pathlib import Path as _P
+        if not steam_path or not app_id:
+            return ""
+        lua = _P(steam_path) / "config" / "stplug-in" / f"{app_id}.lua"
+        return str(lua) if lua.is_file() else ""
+    except Exception:
+        return ""
+
+
+_CRACK_ARCHIVE_PASSWORD = "cs.rin.ru"
+
+
 def _extract_archive_into(archive_path, dest_dir):
-    """Extract zip/rar/7z archive contents into dest_dir."""
+    """Extract zip/rar/7z archive contents into dest_dir.
+
+    cin.re / cs.rin.ru packs are often password-protected with cs.rin.ru.
+    Try unlocked first, then retry with that password.
+    """
     from pathlib import Path as _P
     from sff.zip import safe_extract_zip, safe_extract_rar, safe_extract_7z
     dest_dir = _P(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
     archive_path = _P(archive_path)
     suffix = archive_path.suffix.lower()
+    pwd = _CRACK_ARCHIVE_PASSWORD
+
     if suffix == ".zip":
         import zipfile
-        with zipfile.ZipFile(archive_path) as zf:
-            safe_extract_zip(zf, dest_dir)
-    elif suffix == ".rar":
+        try:
+            with zipfile.ZipFile(archive_path) as zf:
+                safe_extract_zip(zf, dest_dir)
+            return
+        except RuntimeError:
+            with zipfile.ZipFile(archive_path) as zf:
+                safe_extract_zip(zf, dest_dir, pwd=pwd.encode("utf-8"))
+            return
+    if suffix == ".rar":
         import rarfile
         with rarfile.RarFile(str(archive_path)) as rf:
-            safe_extract_rar(rf, dest_dir)
-    elif suffix == ".7z":
+            try:
+                safe_extract_rar(rf, dest_dir)
+                return
+            except Exception:
+                rf.setpassword(pwd)
+                safe_extract_rar(rf, dest_dir)
+                return
+    if suffix in (".7z", ".7zip"):
         import py7zr
-        with py7zr.SevenZipFile(archive_path, mode="r") as zf:
-            safe_extract_7z(zf, dest_dir)
-    else:
-        raise ValueError(f"Unsupported archive type: {suffix}")
+        try:
+            with py7zr.SevenZipFile(archive_path, mode="r") as zf:
+                safe_extract_7z(zf, dest_dir)
+            return
+        except Exception:
+            with py7zr.SevenZipFile(archive_path, mode="r", password=pwd) as zf:
+                safe_extract_7z(zf, dest_dir)
+            return
+    raise ValueError(f"Unsupported archive type: {suffix}")
+
+
+def _guess_archive_name(href, filename=""):
+    name = str(filename or "").strip()
+    if not name:
+        path = str(href or "").split("?", 1)[0].rstrip("/")
+        name = path.rsplit("/", 1)[-1] if path else ""
+    if not name:
+        name = "crack.bin"
+    lower = name.lower()
+    if not any(lower.endswith(ext) for ext in (".zip", ".rar", ".7z", ".7zip")):
+        name = f"{name}.zip"
+    return _UNSAFE_FILENAME_RE.sub("_", name)
+
+
+def _download_crack_archive(href, filename, tmp_dir):
+    """Download a catalog fix. Pixeldrain when the URL matches, otherwise HTTP."""
+    from pathlib import Path as _P
+    href = str(href or "").strip()
+    tmp_dir = _P(tmp_dir)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    if not href:
+        return None
+    from sff.network.pixeldrain import _extract_pixeldrain_id, download_pixeldrain
+    file_id = _extract_pixeldrain_id(href)
+    if file_id:
+        return download_pixeldrain(file_id, tmp_dir)
+    from sff.network.http_utils import download_to_path
+    dest = tmp_dir / _guess_archive_name(href, filename)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Referer": "https://cin.re/",
+    }
+    ok = download_to_path(href, dest, headers=headers, timeout=180.0)
+    if not ok or not dest.exists() or dest.stat().st_size < 64:
+        return None
+    head = dest.read_bytes()[:32].lstrip()
+    if head.startswith(b"<") or head.lower().startswith(b"<!doctype"):
+        dest.unlink(missing_ok=True)
+        return None
+    return dest
 
 
 def _find_crack_entry(game_name, app_id=None):
@@ -415,10 +533,31 @@ def _find_crack_entry(game_name, app_id=None):
     return lookup(app_id, game_name)
 
 
-def _pick_crack_fix(entry):
-    """Prefer Crack Only > Crack > CrackFix, then the newest entry."""
+def _pick_crack_fix(entry, installed_buildid=None):
+    """Prefer a fix matching the installed Steam build, then Crack Only > Crack."""
     from sff.network.crack_catalog import pick_fix
-    return pick_fix(entry)
+    return pick_fix(entry, installed_buildid)
+
+
+class WebBridgeLogHandler(logging.Handler):
+    """Logging handler that streams log records to JS over the WebBridge log_message signal."""
+    def __init__(self, bridge):
+        super().__init__()
+        self.bridge = bridge
+        self.setLevel(logging.INFO)
+
+    def emit(self, record):
+        try:
+            msg = record.getMessage()
+            payload = json.dumps({
+                "time": time.strftime("%H:%M:%S", time.localtime(record.created)),
+                "level": record.levelname,
+                "name": record.name,
+                "message": msg,
+            })
+            self.bridge.log_message.emit(payload)
+        except Exception:
+            pass
 
 
 class WebBridge(QObject):
@@ -436,6 +575,7 @@ class WebBridge(QObject):
     task_progress = pyqtSignal(str)
     log_message = pyqtSignal(str)
     lc_progress = pyqtSignal(str)
+    ui_notification = pyqtSignal(str)
 
     def __init__(self, ui, steam_path, parent=None):
         super().__init__(parent)
@@ -446,6 +586,12 @@ class WebBridge(QObject):
         self._store_client = None
         self._hubcap_unavailable = self._is_hubcap_disabled()
         self._get_store_client()
+        try:
+            self._log_handler = WebBridgeLogHandler(self)
+            logging.getLogger("sff").addHandler(self._log_handler)
+            logging.getLogger().addHandler(self._log_handler)
+        except Exception:
+            pass
         self._hubcap_check_timer = QTimer(self)
         self._hubcap_check_timer.setInterval(15_000)
         self._hubcap_check_timer.timeout.connect(self._check_hubcap_key)
@@ -470,7 +616,14 @@ class WebBridge(QObject):
         # Network prefetches must never run on Qt's GUI thread.  The old
         # singleShot called the HTTP function directly and could stall every
         # paint/input event for the full request timeout.
-        QTimer.singleShot(5000, lambda: self._run_async(_prefetch_crack_buildids))
+        QTimer.singleShot(4000, lambda: self._run_async(_prefetch_crack_buildids))
+        QTimer.singleShot(50, lambda: self._run_async(_prefetch_home_feed))
+        QTimer.singleShot(3500, self._probe_provider_keys)
+        try:
+            from sff.ui.notifications import set_ui_emitter
+            set_ui_emitter(self._emit_ui_notification)
+        except Exception:
+            pass
         # Pre-warm the shared Steam CM session in the background so the
         # first app-info / branch lookup never pays the anonymous login
         # cost on the GUI thread.
@@ -511,7 +664,7 @@ class WebBridge(QObject):
         self._games_prefetch_timer.setInterval(120_000)
         self._games_prefetch_timer.timeout.connect(self._prefetch_installed_games)
         self._games_prefetch_timer.start()
-        QTimer.singleShot(2000, self._prefetch_installed_games)
+        QTimer.singleShot(2500, self._prefetch_installed_games)
 
         self._store_metadata_warming = False
         self._store_search_in_flight = False
@@ -533,8 +686,8 @@ class WebBridge(QObject):
             self._store_metadata_warming = True
 
             def _do():
-                from sff.game_list_fallback import ensure_loaded_cached
-                return ensure_loaded_cached()
+                from sff.game_list_fallback import warm_name_cache_only
+                return warm_name_cache_only()
 
             def _done(_result):
                 self._store_metadata_warming = False
@@ -546,7 +699,7 @@ class WebBridge(QObject):
 
             self._run_async(_do, on_done=_done, on_error=_error)
 
-        _QTimer.singleShot(3500, _start)
+        _QTimer.singleShot(8000, _start)
 
     # ── helpers ──────────────────────────────────────────────────
 
@@ -556,29 +709,30 @@ class WebBridge(QObject):
         worker = _Worker(func, *args, **kwargs)
         worker.moveToThread(thread)
 
-        def _cleanup(result):
-            thread.quit()
-            thread.wait()
+        def _drop():
+            try:
+                if thread.isRunning():
+                    thread.quit()
+            except Exception:
+                pass
             if worker in self._workers:
                 self._workers.remove(worker)
             if thread in self._threads:
                 self._threads.remove(thread)
+
+        def _cleanup(result):
             if on_done:
                 on_done(result)
+            QTimer.singleShot(0, _drop)
 
         def _on_error(msg):
-            thread.quit()
-            thread.wait()
-            if worker in self._workers:
-                self._workers.remove(worker)
-            if thread in self._threads:
-                self._threads.remove(thread)
             if on_error:
                 on_error(msg)
             else:
                 self.task_finished.emit(json.dumps({
                     "task": "unknown", "success": False, "message": msg
                 }))
+            QTimer.singleShot(0, _drop)
 
         worker.finished.connect(_cleanup)
         worker.error.connect(_on_error)
@@ -587,12 +741,35 @@ class WebBridge(QObject):
         self._threads.append(thread)
         thread.start()
 
+    _TOAST_TASKS = {
+        "crack_apply", "download_fastest", "download_ddmod", "download_dlc",
+        "download_older_auto", "steam_auto", "steamstub", "validate_files",
+        "cloud_backup", "cloud_restore", "lua_migration", "lure_fix",
+        "update_check",
+    }
+
+    def _emit_ui_notification(self, title, message, kind="info"):
+        try:
+            self.ui_notification.emit(json.dumps({
+                "title": str(title or "Kraken"),
+                "message": str(message or ""),
+                "kind": str(kind or "info"),
+            }))
+        except Exception:
+            pass
+
     def _emit_task_result(self, task_name, success, message="", **extra):
         data = {"task": task_name, "success": success, "message": message}
         data.update(extra)
         if success and str(task_name).startswith("download"):
             self._installed_games_cache = None
         self.task_finished.emit(json.dumps(data))
+        if task_name in self._TOAST_TASKS and message:
+            self._emit_ui_notification(
+                "Kraken" if success else "Kraken — error",
+                message,
+                "success" if success else "error",
+            )
         # Download queue bookkeeping: downloads started by the queue
         # advance the FIFO when they finish (or fail).
         if task_name in ("download_fastest", "download_ddmod") and extra.get("app_id"):
@@ -749,6 +926,33 @@ class WebBridge(QObject):
                 self._store_client = StoreApiClient(self._api_key)
         return self._store_client if not self._hubcap_unavailable else None
 
+    def _probe_provider_keys(self):
+        def _do():
+            from sff.network.provider_keys import check_provider_keys
+            return check_provider_keys()
+
+        def _done(result):
+            if not isinstance(result, dict):
+                return
+            hubcap = result.get("hubcap") or {}
+            if hubcap.get("present") and hubcap.get("ok") is False:
+                self._hubcap_unavailable = True
+                self._store_client = None
+            invalid = result.get("invalid") or []
+            if invalid:
+                names = ", ".join(invalid)
+                self._emit_ui_notification(
+                    "API key expired",
+                    f"{names} failed. Using {result.get('fallback', 'free providers')}. Update the key in Settings.",
+                    "error",
+                )
+            self.task_finished.emit(json.dumps({
+                "task": "provider_keys",
+                **result,
+            }))
+
+        self._run_async(_do, on_done=_done)
+
     def _check_hubcap_key(self):
         if not self._hubcap_unavailable:
             return
@@ -816,13 +1020,14 @@ class WebBridge(QObject):
     @pyqtSlot(str)
     def download_game_fastest(self, app_id):
         return _bridge_download_game_fastest(self, app_id)
+    @pyqtSlot(str, str, str, str, str, str, str, str)
     @pyqtSlot(str, str, str, str, str, str, str)
     @pyqtSlot(str, str, str, str, str, str)
     @pyqtSlot(str, str, str, str, str)
     @pyqtSlot(str, str, str, str)
     @pyqtSlot(str, str, str)
-    def download_game_with_source(self, app_id, source, request_update='0', lua_path='', manifest_folder='', branch='', file_type=''):
-        return _bridge_download_game_with_source(self, app_id, source, request_update, lua_path, manifest_folder, branch, file_type)
+    def download_game_with_source(self, app_id, source, request_update='0', lua_path='', manifest_folder='', branch='', file_type='', build_id=''):
+        return _bridge_download_game_with_source(self, app_id, source, request_update, lua_path, manifest_folder, branch, file_type, build_id)
     def _run_local_import(self, app_id, lua_path, manifest_folder=''):
         """Import a local Lua/archive without any provider API calls.
         Extracts lua + manifests, installs to Steam, writes ACF, registers library entry."""
@@ -1065,6 +1270,14 @@ class WebBridge(QObject):
                 )
                 manifest_map = downloader.get_manifest_ids(parsed, auto=True)
                 downloader.download_manifests_parallel(parsed, auto_manifest=True, manifest_override=manifest_map)
+                if not manifest_map:
+                    self.download_progress.emit(json.dumps({
+                        "app_id": app_id,
+                        "status": "Empty download failed — no manifests downloaded",
+                        "progress": 0,
+                        "error": True,
+                    }))
+                    return False
 
                 # Retrieve buildid and calculate game size from Steam app info
                 if provider:
@@ -1120,13 +1333,30 @@ class WebBridge(QObject):
                         app_id=app_id,
                         game_name=parsed.name if hasattr(parsed, 'name') else f"App {app_id}",
                     )
-                    self._ui.download_manager.complete_external(dl_id, success=True)
+                    self._ui.download_manager.complete_external(dl_id, success=bool(manifest_map))
                 except Exception as e:
                     logger.warning("download tracking failed: %s", e)
 
             # Step 11: done
+            from pathvalidate import sanitize_filename
+            app_name = parsed.name if hasattr(parsed, 'name') else ""
+            installdir = sanitize_filename(app_name).replace("'", "").strip() if app_name else str(app_id)
+            common_dir = lib_path / "steamapps" / "common" / installdir
+            files_exist = common_dir.is_dir() and any(common_dir.iterdir())
+
+            if not manifest_map:
+                self.download_progress.emit(json.dumps({
+                    "app_id": app_id,
+                    "status": "Empty download failed — no manifests",
+                    "progress": 0,
+                    "error": True,
+                }))
+                return False
+
             self.download_progress.emit(json.dumps({
-                "app_id": app_id, "status": "Complete", "progress": 100
+                "app_id": app_id,
+                "status": "Ready in Steam — start the download yourself when you want" if not files_exist else "Complete",
+                "progress": 100,
             }))
             return True
 
@@ -1475,6 +1705,8 @@ class WebBridge(QObject):
         raw = get_setting(Settings.UPDATE_CHECK_OVERRIDES) or "{}"
         try:
             overrides = json.loads(raw) if isinstance(raw, str) else (raw or {})
+            if not isinstance(overrides, dict):
+                overrides = {}
         except Exception:
             overrides = {}
         if app_id_str in overrides:
@@ -1516,26 +1748,194 @@ class WebBridge(QObject):
         """Return catalog info for a game + whether its crack build id
         matches the latest public build id. Memory-only, instant."""
         entry = _find_crack_entry(game_name, app_id)
-        if not entry:
-            return json.dumps({"found": False})
         latest = _latest_public_buildid_from_cache(app_id)
-        crack_bid = str(entry.get("buildid", "") or "")
+        acf = _acf_state_for_app(self._steam_path, app_id)
+        installed_bid = acf.get("buildid") or ""
+        installed = bool(acf.get("installed") or self._find_installed_game_dir(app_id))
+        if not entry:
+            return json.dumps({
+                "found": False,
+                "latest_buildid": latest,
+                "installed": installed,
+                "installed_buildid": installed_bid,
+            })
+        fix = _pick_crack_fix(entry, installed_bid)
+        from sff.network.crack_catalog import _fix_buildid, has_href_for_build
+        crack_bid = _fix_buildid(fix, str(entry.get("buildid", "") or ""))
         match = None
         if latest and crack_bid:
             match = (latest == crack_bid)
+        href_this = has_href_for_build(entry, installed_bid) if installed_bid else bool(fix and fix.get("href"))
         return json.dumps({
             "found": True,
             "name": entry.get("name", ""),
             "crack_buildid": crack_bid,
             "latest_buildid": latest,
+            "installed_buildid": installed_bid,
             "match_latest": match,
-            "fix": _pick_crack_fix(entry),
+            "match_installed": bool(installed_bid and crack_bid and installed_bid == crack_bid),
+            "fix": fix,
+            "can_install": bool(fix and fix.get("href")),
+            "can_install_this_build": href_this,
+            "installed": installed,
             "source_crack": entry.get("source_crack", [])[:1],
+            "original_download": entry.get("original_download", [])[:1],
         })
+
+    @pyqtSlot(str, str, result=str)
+    def get_unlock_recipe(self, app_id, game_name=""):
+        """Local checklist: LumaCore, Lua, install, build, Steam update block."""
+        from sff.gui.bridges.misc_bridge import (
+            _bridge_lumacore_check_update,
+            _bridge_steam_updates_get_state,
+        )
+        acf = _acf_state_for_app(self._steam_path, app_id)
+        lua_path = _lua_path_for_app(self._steam_path, app_id)
+        installed_bid = acf.get("buildid") or ""
+        entry = _find_crack_entry(game_name, app_id)
+        fix = _pick_crack_fix(entry, installed_bid) if entry else None
+        from sff.network.crack_catalog import _fix_buildid, has_href_for_build
+        crack_bid = _fix_buildid(fix, str((entry or {}).get("buildid") or "")) if entry else ""
+        try:
+            luma = json.loads(_bridge_lumacore_check_update(self, "") or "{}")
+        except Exception:
+            luma = {}
+        if not isinstance(luma, dict):
+            luma = {}
+        return json.dumps({
+            "app_id": str(app_id or ""),
+            "lua": bool(lua_path),
+            "lua_path": lua_path,
+            "installed": bool(acf.get("installed")),
+            "installed_buildid": installed_bid,
+            "install_path": acf.get("path") or "",
+            "crack_buildid": crack_bid,
+            "match_installed": bool(installed_bid and crack_bid and installed_bid == crack_bid),
+            "can_install": bool(fix and fix.get("href")),
+            "can_install_this_build": has_href_for_build(entry, installed_bid) if entry and installed_bid else bool(fix and fix.get("href")),
+            "fix": fix,
+            "lumacore_installed": bool(luma.get("installed")),
+            "lumacore_version": str(luma.get("installed") or ""),
+            "lumacore_latest": str(luma.get("latest") or ""),
+            "lumacore_update": bool(luma.get("update_available")),
+            "steam_updates": _bridge_steam_updates_get_state(self),
+        })
+
+    @pyqtSlot(str)
+    def dev_console_exec(self, raw_cmd):
+        """Run operator commands off the GUI thread so the console stays responsive."""
+        def _do():
+            from sff.network.dev_console_service import execute_dev_command
+            return execute_dev_command(raw_cmd)
+
+        def _on_done(res):
+            payload = res if isinstance(res, dict) else {"status": "error", "output": str(res)}
+            status = str(payload.get("status") or "error")
+            output = str(payload.get("output") or "")
+            self._emit_task_result(
+                "dev_console",
+                status in ("ok", "info", "warning"),
+                output,
+                status=status,
+                output=output,
+            )
+
+        self._run_async(
+            _do,
+            on_done=_on_done,
+            on_error=lambda e: self._emit_task_result(
+                "dev_console", False, str(e), status="error", output=str(e)
+            ),
+        )
+
     @pyqtSlot(str, str)
-    def apply_game_crack(self, app_id, game_name):
-        """Download the crack archive for a game and extract it into the
-        installed game folder. Runs in a background worker."""
+    def get_crack_status(self, app_id, game_name):
+        """isitcracked.com status + cin.re catalog (build + installable fix)."""
+        def _do():
+            from sff.network.isitcracked import lookup_game
+            from sff.network.crack_catalog import prefetch
+            prefetch()
+            ic = lookup_game(game_name, app_id) or {}
+            acf = _acf_state_for_app(self._steam_path, app_id)
+            installed_bid = acf.get("buildid") or ""
+            entry = _find_crack_entry(game_name, app_id)
+            fix = _pick_crack_fix(entry, installed_bid) if entry else None
+            latest = _latest_public_buildid_from_cache(app_id)
+            from sff.network.crack_catalog import _fix_buildid, has_href_for_build
+            crack_bid = _fix_buildid(fix, str((entry or {}).get("buildid") or "")) if entry else ""
+            status = str(ic.get("status") or "")
+            status_key = str(ic.get("status_key") or status).lower().replace(" ", "-")
+            protection = str(ic.get("protection") or "").strip()
+            slug = ic.get("slug") or ""
+            denuvo_removed = bool(ic.get("denuvo_removed") or (entry or {}).get("denuvo_removed"))
+            if not denuvo_removed:
+                try:
+                    from sff.network.isitcracked import denuvo_removed_by_developer
+                    denuvo_removed = denuvo_removed_by_developer(
+                        game_name, app_id, protection, status_key, slug
+                    )
+                except Exception:
+                    denuvo_removed = False
+            if denuvo_removed and "removed" not in protection.lower():
+                protection = "Denuvo removed by developer"
+            cracked = status_key in ("cracked", "drm-free", "drmfree")
+            url = ic.get("url") or (f"https://isitcracked.com/game/{slug}" if slug else "")
+            return {
+                "app_id": app_id,
+                "status": status,
+                "status_key": status_key,
+                "cracked": cracked,
+                "denuvo_removed": denuvo_removed,
+                "protection": protection,
+                "url": url,
+                "days": ic.get("days") or "",
+                "scene_group": ic.get("scene_group") or "",
+                "crack_date": ic.get("crack_date") or "",
+                "catalog_found": bool(entry),
+                "crack_buildid": crack_bid,
+                "latest_buildid": latest or "",
+                "installed_buildid": installed_bid,
+                "match_latest": bool(latest and crack_bid and str(latest) == crack_bid),
+                "match_installed": bool(installed_bid and crack_bid and installed_bid == crack_bid),
+                "fix": fix,
+                "can_install": bool(fix and fix.get("href")),
+                "can_install_this_build": has_href_for_build(entry, installed_bid) if entry and installed_bid else bool(fix and fix.get("href")),
+                "installed": bool(acf.get("installed") or self._find_installed_game_dir(app_id)),
+                "source_crack": (entry or {}).get("source_crack") or [],
+                "original_download": (entry or {}).get("original_download") or [],
+                "name": (entry or {}).get("name") or game_name,
+            }
+
+        def _on_done(res):
+            self._emit_task_result("crack_status", True, "", **(res or {"app_id": app_id}))
+
+        self._run_async(
+            _do,
+            on_done=_on_done,
+            on_error=lambda e: self._emit_task_result("crack_status", False, str(e), app_id=app_id),
+        )
+
+    def _kraken_cracks_dir(self, app_id, game_name=""):
+        from sff.core.utils import sff_data_dir
+        from pathvalidate import sanitize_filename
+        slug = sanitize_filename(str(game_name or "").strip())[:48].strip(" ._") or "game"
+        folder = sff_data_dir() / "cracks" / f"{app_id}_{slug}"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    @pyqtSlot(str)
+    def open_local_path(self, path):
+        from pathlib import Path as _P
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        p = _P(str(path or "").strip())
+        if p.exists():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+
+    @pyqtSlot(str, str)
+    @pyqtSlot(str, str, str)
+    def apply_game_crack(self, app_id, game_name, href=""):
+        """Download the crack archive into Kraken/cracks — do not unpack into the game."""
         if not app_id or not app_id.strip().isdigit():
             self._emit_task_result("crack_apply", False, f"Invalid App ID: '{app_id}'", app_id=app_id)
             return
@@ -1545,64 +1945,91 @@ class WebBridge(QObject):
                 self.download_progress.emit(json.dumps({
                     "app_id": app_id, "status": "Looking up crack...", "progress": 5
                 }))
-                if not game_name or not str(game_name).strip():
+                resolved_name = str(game_name or "").strip()
+                if not resolved_name or resolved_name.lower().startswith("app "):
                     try:
                         from sff.core.storage.vdf import get_steam_libs, vdf_load
                         for _lib in get_steam_libs(self._steam_path) if self._steam_path else []:
                             _acf = _lib / "steamapps" / f"appmanifest_{app_id}.acf"
                             if _acf.is_file():
-                                game_name = str(vdf_load(_acf).get("AppState", {}).get("name", "") or "")
+                                resolved_name = str(vdf_load(_acf).get("AppState", {}).get("name", "") or "")
                                 break
                     except Exception:
                         pass
-                entry = _find_crack_entry(game_name, app_id)
-                if not entry:
-                    return (False, "No crack found for this game.")
-                fix = _pick_crack_fix(entry)
-                if not fix:
-                    return (False, "No downloadable crack file listed for this game.")
-                from sff.network.pixeldrain import _extract_pixeldrain_id, download_pixeldrain
-                file_id = _extract_pixeldrain_id(fix.get("href", "") or "")
-                if not file_id:
-                    return (False, "Crack download link is not a supported host.")
+                from sff.network.crack_catalog import prefetch
+                prefetch()
+                installed_bid = _acf_state_for_app(self._steam_path, app_id).get("buildid") or ""
+                override = str(href or "").strip()
+                if override:
+                    fix = {"href": override, "filename": ""}
+                    entry = {"buildid": installed_bid, "fixes": [fix]}
+                else:
+                    entry = _find_crack_entry(resolved_name, app_id)
+                    if not entry:
+                        return {"ok": False, "msg": "No crack in the catalog for this game."}
+                    fix = _pick_crack_fix(entry, installed_bid)
+                    if not fix or not fix.get("href"):
+                        bid = installed_bid or str(entry.get("buildid") or "")
+                        if bid:
+                            return {
+                                "ok": False,
+                                "msg": f"No downloadable crack file listed for build {bid} in the catalog.",
+                            }
+                        return {"ok": False, "msg": "No downloadable crack file listed for this game."}
 
-                install_dir = self._find_installed_game_dir(app_id)
-                if install_dir is None:
-                    return (False, "Game install folder not found. Download the game first.")
-
+                dest_dir = self._kraken_cracks_dir(app_id, resolved_name)
+                label = fix.get("filename") or fix.get("href")
                 self.download_progress.emit(json.dumps({
-                    "app_id": app_id, "status": f"Downloading crack: {fix.get('filename') or file_id}", "progress": 30
+                    "app_id": app_id, "status": f"Downloading crack: {label}", "progress": 30
                 }))
-                import tempfile
-                from pathlib import Path as _Path
-                tmp_dir = _Path(tempfile.mkdtemp(prefix="kraken_crack_"))
-                archive = download_pixeldrain(file_id, tmp_dir)
+                archive = _download_crack_archive(fix.get("href", ""), fix.get("filename") or "", dest_dir)
                 if archive is None:
-                    return (False, "Crack download failed (pixeldrain unreachable).")
+                    return {"ok": False, "msg": "Crack download failed. The catalog link may be down."}
+                size_mb = archive.stat().st_size / (1024 * 1024)
+                if size_mb >= 80:
+                    try:
+                        archive.unlink()
+                    except Exception:
+                        pass
+                    return {
+                        "ok": False,
+                        "msg": (
+                            f"Downloaded file is {size_mb:.0f} MB — that looks like a full game dump, "
+                            "not a crack-only pack. Not keeping it."
+                        ),
+                    }
                 self.download_progress.emit(json.dumps({
-                    "app_id": app_id, "status": "Extracting crack into game folder", "progress": 70
+                    "app_id": app_id, "status": "Saved to Kraken/cracks", "progress": 100
                 }))
-                _extract_archive_into(archive, install_dir)
-                try:
-                    archive.unlink(missing_ok=True)
-                    import shutil as _sh
-                    _sh.rmtree(tmp_dir, ignore_errors=True)
-                except Exception:
-                    pass
-                _bridge_set_game_update_override(self, app_id, False)
-                self.download_progress.emit(json.dumps({
-                    "app_id": app_id, "status": "Crack applied", "progress": 100
-                }))
-                return (True, f"Crack applied to {game_name}. Auto-updates disabled for this game.")
+                from sff.network.crack_catalog import _fix_buildid
+                bid = _fix_buildid(fix, str(entry.get("buildid") or ""))
+                suffix = f" (build {bid})" if bid else ""
+                return {
+                    "ok": True,
+                    "msg": f"Crack saved to {dest_dir}{suffix}. Unpack it and apply it in the game folder yourself.",
+                    "path": str(dest_dir),
+                    "file": str(archive),
+                }
             except Exception as exc:
                 logger.exception("apply_game_crack failed for %s: %s", app_id, exc)
-                return (False, f"Crack apply failed: {exc}")
+                return {"ok": False, "msg": f"Crack download failed: {exc}"}
 
         def _on_done(result):
+            if isinstance(result, dict):
+                self._emit_task_result(
+                    "crack_apply",
+                    bool(result.get("ok")),
+                    str(result.get("msg") or ""),
+                    app_id=app_id,
+                    saved_path=result.get("path") or "",
+                    saved_file=result.get("file") or "",
+                )
+                return
             ok, msg = (result if isinstance(result, tuple) else (result is True, str(result)))
             self._emit_task_result("crack_apply", bool(ok), str(msg), app_id=app_id)
 
         self._run_async(_do, on_done=_on_done, on_error=lambda e: self._emit_task_result("crack_apply", False, str(e), app_id=app_id))
+
     @pyqtSlot(result=str)
     def check_lua_folder_migration(self):
         """List .lua files in Steam/config/lua (SteamTools/OST folder) that
@@ -2002,12 +2429,32 @@ class WebBridge(QObject):
     @pyqtSlot(str)
     def lure_fix_acf(self, app_id):
         return _bridge_lure_fix_acf(self, app_id)
+    @pyqtSlot(str, result=bool)
+    def get_game_auto_update(self, app_id):
+        return _bridge_get_game_auto_update(self, app_id)
+    @pyqtSlot(str, bool)
+    def set_game_auto_update(self, app_id, enabled):
+        return _bridge_set_game_auto_update(self, app_id, enabled)
+    @pyqtSlot()
+    @pyqtSlot(bool)
+    def run_autochecker(self, force=False):
+        return _bridge_run_autochecker(self, force)
     @pyqtSlot()
     def restart_steam(self):
         return _bridge_restart_steam(self)
     @pyqtSlot()
     def open_log_window(self):
         return _bridge_open_log_window(self)
+    @pyqtSlot(int, result=str)
+    @pyqtSlot(result=str)
+    def get_recent_logs(self, max_lines=400):
+        return _bridge_get_recent_logs(self, max_lines)
+    @pyqtSlot(result=bool)
+    def clear_logs(self):
+        return _bridge_clear_logs(self)
+    @pyqtSlot(result=str)
+    def get_log_file_path(self):
+        return _bridge_get_log_file_path(self)
     @pyqtSlot(str)
     def copy_to_clipboard(self, text):
         return _bridge_copy_to_clipboard(self, text)
@@ -2076,6 +2523,13 @@ class WebBridge(QObject):
     @pyqtSlot(str)
     def open_url(self, url):
         return _bridge_open_url(self, url)
+    @pyqtSlot(str)
+    @pyqtSlot(str, str)
+    def play_game_trailer(self, url, title=""):
+        return _bridge_play_game_trailer(self, url, title)
+    @pyqtSlot(str)
+    def install_game(self, app_id):
+        return _bridge_install_game(self, app_id)
     @pyqtSlot(str)
     def launch_game(self, app_id):
         return _bridge_launch_game(self, app_id)
@@ -2350,6 +2804,11 @@ class WebBridge(QObject):
         from sff.gui.bridges.settings_bridge import _bridge_set_secret_setting
         return _bridge_set_secret_setting(self, key, value)
 
+    @pyqtSlot(str, result=bool)
+    def remove_provider_key(self, label):
+        from sff.gui.bridges.settings_bridge import _bridge_remove_provider_key
+        return _bridge_remove_provider_key(self, label)
+
     @pyqtSlot(str, str, str, str, str, result=str)
     def cloud_backup(self, steam_path, steam32_id, app_id, game_name, dest_folder):
         from sff.gui.bridges.cloud_bridge import _bridge_cloud_backup
@@ -2371,12 +2830,38 @@ class WebBridge(QObject):
             self.task_finished.emit(json.dumps({"task": "hero_categories", "data": None, "error": str(err)}))
         self._run_async(_do, on_done=_on_done, on_error=_on_err)
 
+    @pyqtSlot(result=str)
+    def get_home_feed_cached(self):
+        from sff.core.hero_fetcher import peek_home_feed
+        data = peek_home_feed() or {}
+        return json.dumps(data)
+
+    @pyqtSlot()
+    def get_home_feed(self):
+        def _do():
+            from sff.core.hero_fetcher import fetch_home_feed
+            ids = []
+            try:
+                games = json.loads(self.get_installed_games() or "[]")
+                ids = [str(g.get("app_id") or "") for g in games if g.get("app_id")]
+            except Exception:
+                pass
+            return fetch_home_feed(force=True, library_app_ids=ids)
+        def _on_done(res):
+            self.task_finished.emit(json.dumps({"task": "home_feed", "data": res}))
+        def _on_err(err):
+            self.task_finished.emit(json.dumps({"task": "home_feed", "data": None, "error": str(err)}))
+        self._run_async(_do, on_done=_on_done, on_error=_on_err)
+
     @pyqtSlot()
     def refresh_library(self):
         return _bridge_refresh_library(self)
     @pyqtSlot(str, str, str)
     def delete_game(self, app_id, game_path, mode):
         return _bridge_delete_game(self, app_id, game_path, mode)
+    @pyqtSlot(str, str)
+    def open_game_folder(self, app_id, game_path):
+        return _bridge_open_game_folder(self, app_id, game_path)
     @pyqtSlot()
     def gdrive_authorize(self):
         return _bridge_gdrive_authorize(self)

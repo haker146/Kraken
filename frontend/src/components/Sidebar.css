@@ -3,48 +3,82 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: rgba(6, 8, 16, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(18px);
   border-right: 1px solid var(--c-border);
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 /* Logo */
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 18px 16px 14px;
+  gap: 12px;
+  padding: 16px 16px 14px;
   border-bottom: 1px solid var(--c-border);
 }
 
 .sidebar-logo-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  background: var(--c-accent-dim);
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(120, 80, 240, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
   flex-shrink: 0;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  box-shadow: 0 0 12px rgba(124, 58, 237, 0.15);
+  transition: all 0.2s ease;
 }
 
-.sidebar-logo-icon img {
+.sidebar-logo-icon.steam-avatar {
+  border-radius: 50%;
+  border: 1.5px solid var(--c-accent);
+}
+
+.sidebar-logo-icon.kraken-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+}
+
+.sidebar-logo-icon.steam-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
+}
+
+.sidebar-logo-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .sidebar-logo-text {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: -0.03em;
-  background: linear-gradient(135deg, #f1f5f9 0%, var(--c-accent) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.02em;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.sidebar-logo-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--t-muted);
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  margin-top: 2px;
 }
 
 /* Nav */
@@ -99,10 +133,12 @@
 .nav-indicator {
   position: absolute;
   inset: 0;
+  display: block;
   background: var(--c-accent-dim);
   border-radius: var(--radius-md);
   border: 1px solid rgba(56, 189, 248, 0.2);
   z-index: 0;
+  pointer-events: none;
 }
 
 .nav-icon {
@@ -167,3 +203,41 @@
 .steam-pill.disconnected .steam-dot { background: var(--t-muted); }
 .steam-pill.connected .steam-label   { color: var(--t-secondary); }
 .steam-pill.disconnected .steam-label { color: var(--t-muted); }
+
+/* Operator Console Button */
+.sidebar-op-console {
+  margin-top: 6px;
+  padding: 0 4px;
+}
+
+.op-console-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--t-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.op-console-btn:hover {
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.op-console-icon {
+  flex-shrink: 0;
+}
+
+.op-console-label {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  letter-spacing: 0.5px;
+}
+

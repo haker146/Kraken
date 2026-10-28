@@ -12,12 +12,13 @@ const STATUS_CONFIG = {
 };
 
 const GameCard = memo(function GameCard({ game }) {
-  const { setActiveGame, setActivePage } = useAppStore();
+  const { setActiveGame, setActivePage, setHubBackPage } = useAppStore();
 
   const status = STATUS_CONFIG[game.status] || STATUS_CONFIG.available;
 
   const handleClick = () => {
     setActiveGame(game);
+    setHubBackPage('store');
     setActivePage('game-hub');
   };
 

@@ -1,10 +1,10 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Home, Wrench, Store, BookOpen, RotateCcw,
-  Settings, FileText, Cloud, Zap, ChevronRight
+  Home, Wrench, Store, BookOpen,
+  Settings, FileText, Cloud, Zap, ChevronRight, Terminal
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
+import krakenLogo from '../assets/kraken.png';
 import './Sidebar.css';
 
 const NAV_ITEMS = [
@@ -12,7 +12,6 @@ const NAV_ITEMS = [
   { id: 'store',      label: 'Store',       icon: Store,    group: 'main' },
   { id: 'library',    label: 'Library',     icon: BookOpen, group: 'main' },
   { id: 'fixgame',    label: 'Fix Game',    icon: Zap,      group: 'tools' },
-  { id: 'downgrade',  label: 'Downgrade',   icon: RotateCcw,group: 'tools' },
   { id: 'cloudsaves', label: 'Cloud Saves', icon: Cloud,    group: 'tools' },
   { id: 'tools',      label: 'Tools',       icon: Wrench,   group: 'tools' },
   { id: 'settings',   label: 'Settings',    icon: Settings, group: 'bottom' },
@@ -20,7 +19,18 @@ const NAV_ITEMS = [
 ];
 
 export default function Sidebar() {
-  const { activePage, setActivePage, steamStatus } = useAppStore();
+  const activePage = useAppStore(s => s.activePage);
+  const setActivePage = useAppStore(s => s.setActivePage);
+  const steamStatus = useAppStore(s => s.steamStatus);
+  const [avatarError, setAvatarError] = React.useState(false);
+
+  React.useEffect(() => {
+    setAvatarError(false);
+  }, [steamStatus?.avatar_url, steamStatus?.running]);
+
+  const isSteamRunning = Boolean(steamStatus.running);
+  const showSteamAvatar = Boolean(isSteamRunning && steamStatus.avatar_url && !avatarError);
+  const avatarSrc = showSteamAvatar ? steamStatus.avatar_url : krakenLogo;
 
   const groups = {
     main:   NAV_ITEMS.filter(i => i.group === 'main'),
@@ -30,21 +40,31 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {/* Logo */}
+      {/* Logo / User Profile */}
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
+        <div className={`sidebar-logo-icon ${showSteamAvatar ? 'steam-avatar' : 'kraken-logo'}`}>
           <img 
-            src={steamStatus.running && steamStatus.avatar_url ? steamStatus.avatar_url : "/kraken.png"} 
-            alt="K" 
-            onError={e => { e.target.src = '/kraken.png'; }}
-            style={{ borderRadius: (steamStatus.running && steamStatus.avatar_url) ? '50%' : '8px' }}
+            key={showSteamAvatar ? (steamStatus.avatar_url || 'steam-avatar') : 'kraken-logo'}
+            src={avatarSrc} 
+            alt="Kraken" 
+            onError={() => {
+              if (showSteamAvatar) {
+                setAvatarError(true);
+              }
+            }}
+            draggable={false}
           />
         </div>
-        <span className="sidebar-logo-text" style={{ fontSize: steamStatus.running ? 16 : 12, lineHeight: 1.2 }}>
-          {steamStatus.running 
-            ? (steamStatus.persona_name || "Kraken") 
-            : "Brak uruchomionego steam"}
-        </span>
+        <div className="sidebar-logo-info">
+          <span className="sidebar-logo-text" title={isSteamRunning ? (steamStatus.persona_name || "Kraken") : "Kraken"}>
+            {isSteamRunning 
+              ? (steamStatus.persona_name || "Kraken") 
+              : "Kraken"}
+          </span>
+          <span className="sidebar-logo-sub">
+            {isSteamRunning ? "Steam Connected" : "Steam Offline"}
+          </span>
+        </div>
       </div>
 
       {/* Nav Main */}
@@ -70,6 +90,17 @@ export default function Sidebar() {
         </button>
 
         <NavGroup items={groups.bottom} active={activePage} onSelect={setActivePage} />
+
+        <div className="sidebar-op-console">
+          <button
+            className="op-console-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('open_dev_console'))}
+            title="Operator Console (Ctrl+~)"
+          >
+            <Terminal size={14} className="op-console-icon" />
+            <span className="op-console-label">Console</span>
+          </button>
+        </div>
       </div>
     </aside>
   );
@@ -93,13 +124,7 @@ function NavItem({ item, active, onSelect }) {
         className={`nav-item ${active ? 'active' : ''}`}
         onClick={() => onSelect(item.id)}
       >
-        {active && (
-          <motion.div
-            className="nav-indicator"
-            layoutId="nav-indicator"
-            transition={{ type: 'spring', stiffness: 400, damping: 35 }}
-          />
-        )}
+        {active && <span className="nav-indicator" />}
         <Icon size={16} strokeWidth={active ? 2.5 : 1.8} className="nav-icon" />
         <span className="nav-label">{item.label}</span>
         {active && <ChevronRight size={12} className="nav-chevron" />}

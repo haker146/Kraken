@@ -99,7 +99,7 @@ else:
     _LINUX_CHROMIUM_FALLBACK_APPLIED = False
 os.environ.setdefault(
     'QTWEBENGINE_CHROMIUM_FLAGS',
-    '--no-sandbox --ignore-gpu-blocklist',
+    '--no-sandbox --disable-direct-composition --ignore-gpu-blocklist',
 )
 
 import PyQt6.QtWebEngineWidgets  # noqa: F401 - must import before QCoreApplication
@@ -394,6 +394,9 @@ def main():
         steam_path = path_obj.resolve()
         set_setting(Settings.STEAM_PATH, str(steam_path))
 
+    if steam_path:
+        set_setting(Settings.STEAM_PATH, str(steam_path))
+
     _kick_lumacore_check(steam_path)
 
     from sff.gui.gui_prompts import install as install_gui_prompts
@@ -613,13 +616,34 @@ def main():
 
     QTimer.singleShot(2000, _maybe_self_update)
 
+    def _maybe_run_autochecker():
+        try:
+            from sff.core.storage.settings import get_setting
+            from sff.core.structs import Settings
+            if get_setting(Settings.AUTO_CHECK_MANIFEST_UPDATES):
+                logger.info("Running manifest auto-checker on startup...")
+                if hasattr(window, "_web_bridge") and window._web_bridge is not None:
+                    window._web_bridge.run_autochecker(force=False)
+        except Exception as e:
+            logger.debug("Startup autochecker failed: %s", e)
+
+    QTimer.singleShot(3500, _maybe_run_autochecker)
+
     # Fill missing LumaCore pattern cache for the current Steam build on
     # startup (Steam client updates after install leave the cache empty).
     if sys.platform == "win32":
         def _prewarm_luma():
             try:
                 from sff.lumacore.lumacore_setup import prewarm_pattern_cache_if_missing
-                prewarm_pattern_cache_if_missing(steam_path)
+                result = prewarm_pattern_cache_if_missing(steam_path) or {}
+                if result.get("restart_needed") and hasattr(window, "_web_bridge") and window._web_bridge:
+                    import json as _json
+                    window._web_bridge.task_finished.emit(_json.dumps({
+                        "task": "lumacore_patterns_updated",
+                        "steam_updated": bool(result.get("steam_updated")),
+                        "restart_needed": True,
+                        "wrote": int(result.get("wrote") or 0),
+                    }))
             except Exception:
                 pass
         QTimer.singleShot(8000, _prewarm_luma)

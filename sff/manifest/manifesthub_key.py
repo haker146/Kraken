@@ -54,13 +54,17 @@ def _save_key(key):
     set_setting(Settings.MANIFESTHUB_KEY_EXPIRY, str(time.time() + _EXPIRY_SECONDS))
 
 
-def get_manifesthub_api_key():
-    """Get a valid key; opens the generator page in the user's browser if renewal needed."""
+def get_manifesthub_api_key(prompt_if_missing: bool = False):
+    """Get a valid key. If prompt_if_missing is False and no key exists, returns None silently."""
     from sff.core.storage.settings import get_setting
     from sff.core.structs import Settings
 
     if _key_is_valid():
         return get_setting(Settings.MANIFESTHUB_API_KEY)
+
+    if not prompt_if_missing:
+        # In automated / GUI download flows, never block the worker thread with interactive dialogs
+        return None
 
     with _renewal_lock:
         # Re-check inside lock — another parallel thread may have already renewed.

@@ -16,17 +16,21 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 min
 export function useSteamDetails(appId) {
   const key = String(appId ?? '');
   const [data,    setData]    = useState(() => CACHE.get(key)?.data ?? null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(appId) && !CACHE.get(key)?.data);
   const [error,   setError]   = useState(null);
   const pendingRef = useRef(null);
 
   useEffect(() => {
-    if (!appId) return;
+    if (!appId) {
+      setLoading(false);
+      return;
+    }
 
     // Cache hit — serve immediately
     const cached = CACHE.get(key);
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
       setData(cached.data);
+      setLoading(false);
       return;
     }
 
@@ -64,7 +68,6 @@ export function useSteamDetails(appId) {
         if (cancelled || pendingRef.current !== key) return;
 
         if (payload.partial) {
-          // First partial response — only name + header available
           if (!data) {
             setData({
               name: payload.name,
@@ -75,12 +78,25 @@ export function useSteamDetails(appId) {
           return;
         }
 
-        // Full payload inside payload.data
+        if (payload.extra_only) {
+          setData(prev => {
+            const merged = { ...(prev || {}), ...payload };
+            delete merged.extra_only;
+            delete merged.task;
+            delete merged.success;
+            delete merged.message;
+            CACHE.set(key, { data: merged, ts: Date.now() });
+            return merged;
+          });
+          setLoading(false);
+          bridge.off('task_finished', handler);
+          return;
+        }
+
         const detail = payload.data ?? payload;
         CACHE.set(key, { data: detail, ts: Date.now() });
         setData(detail);
         setLoading(false);
-        bridge.off('task_finished', handler);
       } catch (e) {
         console.error('[useSteamDetails] parse error:', e);
       }

@@ -207,7 +207,30 @@
   border-bottom: 1px solid var(--c-border);
 }
 .modal-toggle-row:last-child { border-bottom: none; }
-.modal-toggle-label { font-size: 13px; font-weight: 600; color: var(--t-primary); }
+.modal-toggle-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.modal-au-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.modal-au-badge.on {
+  color: var(--c-green);
+  background: var(--c-green-dim);
+}
+.modal-au-badge.off {
+  color: var(--c-red);
+  background: var(--c-red-dim);
+}
 .modal-toggle-desc  { font-size: 11px; color: var(--t-muted); margin-top: 2px; }
 
 /* Toggle switch */

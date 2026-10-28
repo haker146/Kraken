@@ -139,6 +139,115 @@ def _filter_store_nsfw_rows(rows):
     ]
 
 
+def _plain_appid(query):
+    """Return int AppID when the query is only digits, else None."""
+    compact = str(query or "").strip().replace(" ", "")
+    if compact.isdigit() and 1 <= len(compact) <= 10:
+        try:
+            aid = int(compact)
+        except (TypeError, ValueError):
+            return None
+        if aid > 0:
+            return aid
+    return None
+
+
+def _game_row_from_appid(appid):
+    """Resolve an unlisted / hidden Steam component through GetItems."""
+    try:
+        aid = int(appid)
+    except (TypeError, ValueError):
+        return None
+    if aid <= 0:
+        return None
+    images, types, nsfw = _fetch_steam_image_urls([aid])
+    catalog = {}
+    try:
+        catalog = _fetch_steam_catalog_items([aid]) or {}
+    except Exception:
+        catalog = {}
+    meta = catalog.get(aid) or {}
+    try:
+        from sff.game_list_fallback import get_app_name
+        fallback_name = get_app_name(aid)
+    except Exception:
+        fallback_name = ""
+    name = str(meta.get("name") or "").strip() or fallback_name or f"App {aid}"
+    image = (
+        images.get(aid)
+        or meta.get("header_image")
+        or meta.get("capsule_url")
+        or f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/capsule_616x353.jpg"
+    )
+    row = {
+        "app_id": aid,
+        "name": name,
+        "last_updated": "",
+        "status": "",
+        "size": 0,
+        "image_url": image,
+        "nsfw": bool(nsfw.get(aid, False)),
+        "source": "getitems",
+        "steam_type": types.get(aid),
+    }
+    try:
+        enrich_game_dict(row)
+    except Exception:
+        pass
+    return row
+
+
+def _steam_storesearch(query, limit=16):
+    """One-shot Steam store search when the merged catalog has zero hits."""
+    q = str(query or "").strip()
+    if not q:
+        return []
+    url = (
+        "https://store.steampowered.com/api/storesearch/?term="
+        + _urlparse.quote(q)
+        + "&l=english&cc=US"
+    )
+    try:
+        from sff.gui.web_bridge import _get_ssl_ctx
+        request = _req.Request(url, headers={"User-Agent": "Mozilla/5.0 Kraken"})
+        with _req.urlopen(request, timeout=6, context=_get_ssl_ctx()) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        logger.debug("Steam storesearch fallback failed: %s", exc)
+        return []
+    rows = []
+    seen = set()
+    for item in (data.get("items") or [])[:limit]:
+        if not isinstance(item, dict):
+            continue
+        aid = item.get("id")
+        try:
+            aid = int(aid)
+        except (TypeError, ValueError):
+            continue
+        if aid <= 0 or aid in seen:
+            continue
+        seen.add(aid)
+        row = {
+            "app_id": aid,
+            "name": str(item.get("name") or f"App {aid}"),
+            "last_updated": "",
+            "status": "",
+            "size": 0,
+            "image_url": item.get("tiny_image") or (
+                f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/capsule_616x353.jpg"
+            ),
+            "nsfw": False,
+            "source": "steam_search",
+        }
+        try:
+            enrich_game_dict(row)
+        except Exception:
+            pass
+        rows.append(row)
+    return rows
+
+
 def _platform_cache_put(aid: int, entry: dict) -> None:
     _STEAM_PLATFORM_CACHE[aid] = entry
     _STEAM_PLATFORM_CACHE.move_to_end(aid)
@@ -297,11 +406,16 @@ def _matches_normalized(query_norm, name_norm):
     return _store_search_score(query_norm, name_norm)[0] < 99
 
 
-def _attach_store_request_id(data, request_id):
+def _attach_store_request_id(data, request_id, offset=None):
     if not isinstance(data, dict):
         data = {"games": [], "total": 0}
     if request_id:
         data["request_id"] = str(request_id)
+    if offset is not None:
+        try:
+            data["offset"] = int(offset)
+        except (TypeError, ValueError):
+            data["offset"] = 0
     return data
 
 
@@ -391,7 +505,7 @@ def _load_steam_applist():
                 if aid_int > 0 and aid_int not in _merged:
                     name = str(a.get("name") or f"App {aid_int}").strip()
                     if name:
-                        _merged[aid_int] = {"name": name, "appid": aid_int}
+                        _merged[aid_int] = {"name": name, "appid": aid_int, "name_lower": name.lower()}
 
     # 1. Local all_games.txt (fast, no network)
     if _all_games_file.is_file() and _all_games_file.stat().st_size > 0:
@@ -408,6 +522,45 @@ def _load_steam_applist():
             logger.debug("Steam applist loaded from all_games.txt: %d apps", len(_apps_from_txt))
         except Exception as _exc:
             logger.debug("all_games.txt load failed: %s", _exc)
+
+    # 1b. Local store_metadata JSON files (offline-first fallback)
+    if not _merged:
+        _mirror_dir = root_folder(outside_internal=True) / "store_metadata"
+        for _cand_name in ("games_appid.json", "games.json"):
+            _cand_path = _mirror_dir / _cand_name
+            if _cand_path.is_file():
+                try:
+                    _data = json.loads(_cand_path.read_bytes())
+                    if isinstance(_data, dict):
+                        for _k, _v in _data.items():
+                            if str(_k).isdigit():
+                                _n = _v if isinstance(_v, str) else (_v.get("name") if isinstance(_v, dict) else "")
+                                if _n:
+                                    _merged[int(_k)] = {"name": str(_n), "appid": int(_k)}
+                    elif isinstance(_data, list):
+                        _add_apps(_data)
+                    if _merged:
+                        logger.debug("Steam applist loaded from local %s: %d apps", _cand_name, len(_merged))
+                        break
+                except Exception as _e:
+                    logger.debug("Local %s load error: %s", _cand_name, _e)
+
+    if _merged:
+        # We have local games list, no need to stall on remote Steam API
+        _result = list(_merged.values())
+        try:
+            _gs = [x.get("name", "UNKNOWN GAME") + f" [ID={x.get('appid')}]" for x in _result]
+            _gs.sort()
+            with _all_games_file.open("w", encoding="utf-8") as _f:
+                _f.write("\n".join(_gs))
+        except Exception:
+            pass
+        _STEAM_APPLIST_CACHE = _result
+        _STEAM_APPLIST_CACHE_TIME = _now
+        _result.sort(key=lambda x: x.get('appid', 0))
+        logger.info("Steam applist built locally — %s total apps", len(_result))
+        _load_steam_applist._building = False
+        return _result
 
     # 2. Steam API (short timeout, best-effort)
     try:
@@ -561,22 +714,38 @@ def _search_steam_catalog(query, offset, per_page, sort_by='updated'):
         return {"games": [], "total": 0, "fallback": True}
     if query:
         q_norm = _normalize_for_search(query)
-        if q_norm:
-            apps = [
-                a for a in apps
-                if _store_search_score(q_norm, a.get("name", ""), a.get("appid"))[0] < 99
-            ]
-    sb = (sort_by or 'updated').lower()
-    if sb == 'name_asc':
-        apps.sort(key=lambda a: (a.get('name') or '').lower())
-    elif sb == 'name_desc':
-        apps.sort(key=lambda a: (a.get('name') or '').lower(), reverse=True)
-    elif sb == 'oldest':
-        apps.sort(key=lambda a: a.get('appid') or 0)
-    elif sb == 'newest':
-        apps.sort(key=lambda a: a.get('appid') or 0, reverse=True)
-    if query:
-        apps.sort(key=lambda a: _store_search_score(query, a.get("name", ""), a.get("appid")))
+        q_tokens = q_norm.split()
+        if q_tokens:
+            compact = q_norm.replace(" ", "")
+            is_digit = compact.isdigit()
+            candidates = []
+            for a in apps:
+                nl = a.get("name_lower")
+                if nl is None:
+                    nl = (a.get("name") or "").lower()
+                    a["name_lower"] = nl
+                aid_str = str(a.get("appid", ""))
+                if (is_digit and aid_str.startswith(compact)) or all(tok in nl for tok in q_tokens):
+                    candidates.append(a)
+            scored = []
+            for a in candidates:
+                s = _store_search_score(q_norm, a.get("name", ""), a.get("appid"))
+                if s[0] < 99:
+                    scored.append((s, a))
+            scored.sort(key=lambda item: item[0])
+            apps = [item[1] for item in scored]
+        else:
+            apps = []
+    else:
+        sb = (sort_by or 'updated').lower()
+        if sb == 'name_asc':
+            apps.sort(key=lambda a: (a.get('name') or '').lower())
+        elif sb == 'name_desc':
+            apps.sort(key=lambda a: (a.get('name') or '').lower(), reverse=True)
+        elif sb == 'oldest':
+            apps.sort(key=lambda a: a.get('appid') or 0)
+        elif sb == 'newest':
+            apps.sort(key=lambda a: a.get('appid') or 0, reverse=True)
     total = len(apps)
     fetch_count = 200 if query else per_page
     page_apps = apps[offset: offset + fetch_count]
@@ -584,12 +753,14 @@ def _search_steam_catalog(query, offset, per_page, sort_by='updated'):
     app_ids = [a["appid"] for a in actual_page if a.get("appid")]
     image_urls, type_map, nsfw_map = _fetch_steam_image_urls(app_ids)
     games = []
+    exact_id = _plain_appid(query)
     for a in actual_page:
         appid = a.get("appid", 0)
-        if type_map.get(appid) in _NON_GAME_TYPES:
+        is_exact = exact_id is not None and int(appid or 0) == exact_id
+        if not is_exact and type_map.get(appid) in _NON_GAME_TYPES:
             continue
         name_lc = a.get("name", f"App {appid}").lower()
-        if any(kw in name_lc for kw in _NONGAME_NAME_KW):
+        if not is_exact and any(kw in name_lc for kw in _NONGAME_NAME_KW):
             continue
         row = {
             "app_id": appid,
@@ -602,6 +773,11 @@ def _search_steam_catalog(query, offset, per_page, sort_by='updated'):
         }
         enrich_game_dict(row)
         games.append(row)
+    if exact_id and not any(int(g.get("app_id") or 0) == exact_id for g in games):
+        resolved = _game_row_from_appid(exact_id)
+        if resolved:
+            games.insert(0, resolved)
+            total = max(total, len(games))
     return {"games": games, "total": total, "fallback": True}
 
 
@@ -697,7 +873,7 @@ def _fetch_steam_platforms(app_ids):
                 + _urlparse.quote(json.dumps(payload, separators=(",", ":")))
             )
             request = _req.Request(url, headers={"User-Agent": "Mozilla/5.0 SteaMidra"})
-            with _req.urlopen(request, timeout=8, context=_get_ssl_ctx()) as resp:
+            with _req.urlopen(request, timeout=2.5, context=_get_ssl_ctx()) as resp:
                 data = json.loads(resp.read())
             seen: set[int] = set()
             for item in (data.get("response") or {}).get("store_items", []) or []:
@@ -761,11 +937,11 @@ def _fetch_steam_platforms(app_ids):
             consecutive_failures = 0
         except Exception as e:
             logger.debug("Steam GetItems lookup failed for chunk starting at %s: %s", chunk[0], e)
-            consecutive_failures += 1
-            for aid in chunk:
+            for aid in pending[start:]:
                 cached = dict(blank_default)
                 _platform_cache_put(aid, cached)
                 out[aid] = cached
+            break
     return out
 
 
@@ -961,6 +1137,7 @@ def _fetch_steam_catalog_items(app_ids):
                 if len(short) > 420:
                     short = short[:417].rsplit(" ", 1)[0] + "…"
                 out[aid] = {
+                    "name": str(item.get("name") or ""),
                     "short_description": short,
                     "developers": developers,
                     "publishers": publishers,
@@ -979,84 +1156,23 @@ def _fetch_steam_catalog_items(app_ids):
 
 
 def _enrich_store_rows(games):
-    """Attach Steam list metadata + isitcracked protection/crack status."""
+    """Normalize store-row fields. Steam/isitcracked details load in Game Hub."""
     if not games:
         return games
-    app_ids = []
     for game in games:
-        try:
-            aid = int(game.get("app_id") or 0)
-        except (TypeError, ValueError):
-            continue
-        if aid > 0:
-            app_ids.append(aid)
-    catalog = {}
-    try:
-        catalog = _fetch_steam_catalog_items(app_ids)
-    except Exception as e:
-        logger.debug("store catalog enrich failed: %s", e)
-    cracks = {}
-    try:
-        from sff.network.isitcracked import lookup_games
-        cracks = lookup_games(games) or {}
-    except Exception as e:
-        logger.debug("isitcracked enrich failed: %s", e)
-    for game in games:
-        try:
-            aid = int(game.get("app_id") or 0)
-        except (TypeError, ValueError):
-            aid = 0
-        meta = catalog.get(aid) or {}
-        if meta.get("short_description") and not game.get("short_description"):
-            game["short_description"] = meta["short_description"]
-        if meta.get("developers"):
-            game["developers"] = meta["developers"]
-        if meta.get("publishers"):
-            game["publishers"] = meta["publishers"]
-        if meta.get("release_date") and not game.get("release_date"):
-            game["release_date"] = meta["release_date"]
-        if meta.get("review_label"):
-            game["review_label"] = meta["review_label"]
-            game["review_percent"] = meta.get("review_percent") or 0
-            game["review_count"] = meta.get("review_count") or 0
-        if meta.get("header_image") and not game.get("image_url"):
-            game["image_url"] = meta["header_image"]
-        if meta.get("header_image"):
-            game["header_image"] = game.get("header_image") or meta["header_image"]
-        if meta.get("capsule_url"):
-            game["capsule_url"] = meta["capsule_url"]
-        if meta.get("screenshot_thumbs"):
-            game["screenshot_thumbs"] = meta["screenshot_thumbs"]
-        tags = game.get("tags") or []
-        if not tags and meta.get("catalog_tags"):
-            game["tags"] = meta["catalog_tags"]
-        crack = cracks.get(aid) or {}
-        status = str(crack.get("status") or "").strip()
-        protection = str(crack.get("protection") or "").strip()
-        if not protection:
-            drm = game.get("drm")
-            if drm is True:
-                protection = "DRM"
-            elif isinstance(drm, (list, tuple)) and drm:
-                protection = ", ".join(str(x) for x in drm if x)
-            elif isinstance(drm, str) and drm.strip() and drm.strip().lower() not in ("false", "0"):
-                protection = drm.strip()
-        if not status and game.get("crack_buildid"):
-            status = "Cracked"
-        if status:
-            game["crack_status"] = status
+        drm = game.get("drm")
+        if isinstance(drm, (list, tuple)):
+            game["drm"] = ", ".join(str(x) for x in drm if x) or "Unknown"
+        elif drm is True:
+            game["drm"] = "DRM"
+        elif not isinstance(drm, str) or not str(drm).strip():
+            game["drm"] = "Unknown"
+        protection = str(game.get("protection") or game.get("drm") or "").strip()
         if protection:
             game["protection"] = protection
-        if crack.get("url"):
-            game["crack_url"] = crack["url"]
-        if crack.get("days"):
-            game["crack_days"] = crack["days"]
-        game["status_key"] = str(crack.get("status_key") or status).lower()
-        try:
-            from sff.network.crack_catalog import attach_store_fields
-            attach_store_fields(game)
-        except Exception:
-            pass
+        if not game.get("crack_status") and game.get("crack_buildid"):
+            game["crack_status"] = "Cracked"
+        game["status_key"] = str(game.get("status_key") or game.get("crack_status") or "").lower()
     return games
 
 
@@ -1566,10 +1682,34 @@ def _bridge_search_games(bridge, query, offset, per_page, sort_by='updated', tag
         if block_nsfw:
             merged = _filter_store_nsfw_rows(merged)
 
+        exact_id = _plain_appid(query)
+        if exact_id and not any(int(g.get("app_id") or 0) == exact_id for g in merged):
+            resolved = _game_row_from_appid(exact_id)
+            if resolved:
+                merged.insert(0, resolved)
+
         if not merged:
-            # Both Steam catalog and Hubcap came back empty. Try
-            # games.json + name-cache directly as a last resort so
-            # the store tab never shows a completely blank page.
+            # Catalog miss: one-shot Steam store search, then games.json.
+            store_hits = []
+            try:
+                store_hits = _steam_storesearch(query)
+            except Exception as e:
+                logger.debug("search_games: Steam storesearch fallback failed: %s", e)
+            if store_hits:
+                seen_st = set()
+                _deduped = []
+                for g in store_hits:
+                    aid = g.get("app_id")
+                    if not aid or aid in seen_st:
+                        continue
+                    seen_st.add(aid)
+                    _deduped.append(g)
+                if _deduped:
+                    result["games"] = _deduped[offset:offset + per_page]
+                    result["total"] = len(_deduped)
+                    result["fallback_source"] = "steam_search"
+                    result["has_fallback_data"] = has_fallback_data()
+                    return _finalize_store_result(result, request_id)
             if has_fallback_data():
                 _last_resort = []
                 if query:
@@ -1628,7 +1768,7 @@ def _bridge_search_games(bridge, query, offset, per_page, sort_by='updated', tag
             QTimer.singleShot(0, lambda args=pending: _bridge_search_games(bridge, *args))
 
     def _on_done(data):
-        _rjson = json.dumps(_attach_store_request_id(data, request_id))
+        _rjson = json.dumps(_attach_store_request_id(data, request_id, offset))
         bridge.search_results.emit(_rjson)
         _start_pending()
 
@@ -1637,6 +1777,7 @@ def _bridge_search_games(bridge, query, offset, per_page, sort_by='updated', tag
         bridge.search_results.emit(json.dumps({
             "games": [],
             "total": 0,
+            "offset": int(offset or 0),
             "request_id": str(request_id or ""),
             "error": str(message or "Store search failed"),
         }))
@@ -1927,7 +2068,16 @@ def _bridge_suggest_store_games(bridge, query):
         })
 
     if q.isdigit():
-        _add(q, get_app_name(q))
+        resolved = None
+        try:
+            resolved = _game_row_from_appid(q)
+        except Exception:
+            resolved = None
+        _add(
+            q,
+            (resolved or {}).get("name") or get_app_name(q),
+            (resolved or {}).get("image_url") or "",
+        )
 
     queries = _alias_expanded_queries(q) or [q]
     try:
@@ -1952,21 +2102,35 @@ def _bridge_suggest_store_games(bridge, query):
 
     if len(rows) < 6:
         q_norm = _normalize_for_search(q)
-        apps = _load_steam_applist() or []
-        extra_scored = []
-        for a in apps:
-            aid = a.get("appid")
-            name = a.get("name", "")
-            if not aid or int(aid) in seen:
-                continue
-            score = _store_search_score(q_norm, name, aid)
-            if score[0] < 99:
-                extra_scored.append((score, a))
-        extra_scored.sort(key=lambda item: item[0])
-        for _score, a in extra_scored:
-            _add(a.get("appid"), a.get("name"))
-            if len(rows) >= 6:
-                break
+        q_tokens = q_norm.split()
+        if q_tokens:
+            apps = _load_steam_applist() or []
+            compact = q_norm.replace(" ", "")
+            is_digit = compact.isdigit()
+            candidates = []
+            for a in apps:
+                aid = a.get("appid")
+                if not aid or int(aid) in seen:
+                    continue
+                nl = a.get("name_lower")
+                if nl is None:
+                    nl = (a.get("name") or "").lower()
+                    a["name_lower"] = nl
+                aid_str = str(aid)
+                if (is_digit and aid_str.startswith(compact)) or all(tok in nl for tok in q_tokens):
+                    candidates.append(a)
+                    if len(candidates) >= 40:
+                        break
+            extra_scored = []
+            for a in candidates:
+                score = _store_search_score(q_norm, a.get("name", ""), a.get("appid"))
+                if score[0] < 99:
+                    extra_scored.append((score, a))
+            extra_scored.sort(key=lambda item: item[0])
+            for _score, a in extra_scored:
+                _add(a.get("appid"), a.get("name"))
+                if len(rows) >= 6:
+                    break
 
     return json.dumps(rows[:6])
 
@@ -2085,12 +2249,18 @@ def _bridge_get_store_game_details(bridge, app_id, language=""):
         movies = details.get("movies") or []
         for movie in movies:
             urls = [u for u in (movie.get("urls") or []) if u and ".m3u8" not in str(u).lower()]
-            urls.sort(key=lambda u: (0 if str(u).lower().endswith(".mp4") else 1, str(u)))
+            urls.sort(key=lambda u: (
+                0 if str(u).lower().endswith(".webm") else 1 if str(u).lower().endswith(".mp4") else 2,
+                str(u),
+            ))
             movie["urls"] = urls
             if urls:
                 movie["url"] = urls[0]
         trailer_urls = [u for u in (details.get("trailer_urls") or []) if ".m3u8" not in str(u).lower()]
-        trailer_urls.sort(key=lambda u: (0 if str(u).lower().endswith(".mp4") else 1, str(u)))
+        trailer_urls.sort(key=lambda u: (
+            0 if str(u).lower().endswith(".webm") else 1 if str(u).lower().endswith(".mp4") else 2,
+            str(u),
+        ))
         payload = {
             "app_id": app_id,
             "name": details.get("name") or local_name,
@@ -2160,6 +2330,7 @@ def _bridge_get_store_game_details(bridge, app_id, language=""):
                 "app_id": app_id,
                 "extra_only": True,
                 "protection": protection,
+                "denuvo_removed": bool(crack.get("denuvo_removed")),
                 "crack_status": crack.get("status") or "",
                 "crack_url": crack.get("url") or "",
                 "crack_days": crack.get("days") or "",
@@ -2192,15 +2363,42 @@ def _bridge_get_store_game_details(bridge, app_id, language=""):
     bridge._run_async(_do, on_done=_ok, on_error=_err)
 
 
+_STEAM_STATUS_CACHE = {
+    "last_check": 0.0,
+    "running": False,
+    "last_vdf_mtime": 0.0,
+    "persona_name": "",
+    "avatar_url": "",
+    "path": "",
+    "found": False,
+}
+
+
 def _bridge_get_steam_client_status(bridge):
-    from sff.core.processes import is_proc_running
+    import time
+    now = time.time()
     path = str(bridge._steam_path) if bridge._steam_path else ""
     found = bool(path and Path(path).exists())
-    running = False
-    try:
-        running = is_proc_running("steam.exe") or is_proc_running("steam")
-    except Exception:
+
+    # Cache process detection for 4 seconds to eliminate CPU overhead from psutil.process_iter
+    if now - _STEAM_STATUS_CACHE["last_check"] < 4.0 and _STEAM_STATUS_CACHE["path"] == path:
+        running = _STEAM_STATUS_CACHE["running"]
+    else:
         running = False
+        try:
+            import psutil
+            wanted = {"steam.exe", "steam"}
+            running = any(
+                p.info["name"] and p.info["name"].lower() in wanted
+                for p in psutil.process_iter(attrs=["name"])
+            )
+        except Exception:
+            running = False
+        _STEAM_STATUS_CACHE["last_check"] = now
+        _STEAM_STATUS_CACHE["running"] = running
+        _STEAM_STATUS_CACHE["path"] = path
+        _STEAM_STATUS_CACHE["found"] = found
+
     if found and not running:
         state = "stopped"
         label = "Steam found"
@@ -2211,44 +2409,53 @@ def _bridge_get_steam_client_status(bridge):
         state = "missing"
         label = "Steam missing"
 
-    persona_name = ""
-    avatar_url = ""
+    persona_name = _STEAM_STATUS_CACHE.get("persona_name", "")
+    avatar_url = _STEAM_STATUS_CACHE.get("avatar_url", "")
+
     if found:
         try:
-            import vdf, base64
             cfg = Path(path) / "config" / "loginusers.vdf"
-            if cfg.is_file():
-                with cfg.open(encoding="utf-8", errors="replace") as fh:
-                    data = vdf.load(fh)
-                users = data.get("users", {})
-                if isinstance(users, dict):
-                    chosen_id64 = None
-                    chosen_ts = -1
-                    for sid64, entry in users.items():
-                        if not isinstance(entry, dict):
-                            continue
-                        if int(entry.get("MostRecent", 0)) == 1:
-                            chosen_id64 = sid64
-                            persona_name = entry.get("PersonaName", "")
-                            break
-                        ts = int(entry.get("Timestamp", 0))
-                        if ts > chosen_ts:
-                            chosen_ts = ts
-                            chosen_id64 = sid64
-                            persona_name = entry.get("PersonaName", "")
-                
-            avatar_dir = Path(path) / "config" / "avatarcache"
-            if avatar_dir.is_dir():
-                avatars = list(avatar_dir.glob("*_full.png"))
-                if not avatars:
-                    avatars = list(avatar_dir.glob("*.png"))
-                if avatars:
-                    avatars.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-                    try:
-                        b64 = base64.b64encode(avatars[0].read_bytes()).decode("ascii")
-                        avatar_url = f"data:image/png;base64,{b64}"
-                    except:
-                        pass
+            vdf_mtime = cfg.stat().st_mtime if cfg.is_file() else 0.0
+
+            # Only re-read VDF and avatars if loginusers.vdf actually changed on disk
+            if vdf_mtime != _STEAM_STATUS_CACHE["last_vdf_mtime"] or not persona_name:
+                _STEAM_STATUS_CACHE["last_vdf_mtime"] = vdf_mtime
+                if cfg.is_file():
+                    import vdf
+                    with cfg.open(encoding="utf-8", errors="replace") as fh:
+                        data = vdf.load(fh)
+                    users = data.get("users", {})
+                    if isinstance(users, dict):
+                        chosen_id64 = None
+                        chosen_ts = -1
+                        for sid64, entry in users.items():
+                            if not isinstance(entry, dict):
+                                continue
+                            if int(entry.get("MostRecent", 0)) == 1:
+                                chosen_id64 = sid64
+                                persona_name = entry.get("PersonaName", "")
+                                break
+                            ts = int(entry.get("Timestamp", 0))
+                            if ts > chosen_ts:
+                                chosen_ts = ts
+                                chosen_id64 = sid64
+                                persona_name = entry.get("PersonaName", "")
+                        _STEAM_STATUS_CACHE["persona_name"] = persona_name
+
+                avatar_dir = Path(path) / "config" / "avatarcache"
+                if avatar_dir.is_dir():
+                    import base64
+                    avatars = list(avatar_dir.glob("*_full.png"))
+                    if not avatars:
+                        avatars = list(avatar_dir.glob("*.png"))
+                    if avatars:
+                        avatars.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                        try:
+                            b64 = base64.b64encode(avatars[0].read_bytes()).decode("ascii")
+                            avatar_url = f"data:image/png;base64,{b64}"
+                            _STEAM_STATUS_CACHE["avatar_url"] = avatar_url
+                        except Exception:
+                            pass
         except Exception as e:
             logger.debug(f"Error reading persona details: {e}")
 
@@ -2353,4 +2560,24 @@ def _bridge_get_search_suggestions(bridge, query, limit=6):
             "header_url": f"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{aid}/header.jpg",
         })
     return json.dumps(out)
+
+
+def _bridge_play_game_trailer(bridge, url, title=""):
+    """Launch native hardware-accelerated video player for the trailer stream."""
+    url = str(url or "").strip()
+    if not url:
+        return False
+    try:
+        from sff.gui.trailer_dialog import play_trailer_native
+        parent = getattr(bridge, '_parent', None) or (bridge.parent() if hasattr(bridge, 'parent') else None)
+        return play_trailer_native(url, str(title or "Trailer"), parent=parent)
+    except Exception as exc:
+        logger.warning("play_game_trailer fallback to external: %s", exc)
+        try:
+            from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QDesktopServices
+            return QDesktopServices.openUrl(QUrl(url))
+        except Exception:
+            return False
+
 

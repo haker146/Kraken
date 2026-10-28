@@ -66,6 +66,7 @@ _CACHE_TTL = 86400
 
 _games_cache = {}
 _games_cache_time = 0.0
+_browse_index = None
 
 _name_cache = {}
 _dlc_name_cache = {}
@@ -208,6 +209,7 @@ def _load_cached_games_json() -> bool:
             _games_cache = cleaned
             _games_cache_time = path.stat().st_mtime
             _loaded = True
+            _invalidate_browse_index()
             logger.info("games.json loaded from cache: %d entries", len(_games_cache))
             return True
         except Exception as e:
@@ -235,6 +237,7 @@ def _load_games_json(force=False):
             with _req.urlopen(request, timeout=30, context=_get_ssl_ctx()) as resp:
                 data = json.load(resp)
             _games_cache = _normalize_games_data(data)
+            _invalidate_browse_index()
             if _games_cache:
                 _atomic_json_write(_get_cache_dir() / "games.json", data)
             _games_cache_time = now
@@ -330,6 +333,46 @@ def _load_name_cache(force=False):
                 len(_name_cache),
                 len(_dlc_name_cache),
             )
+
+
+def warm_name_cache_only() -> bool:
+    """Startup warm: appid→name maps from disk. Skips games.json (tens of MB)."""
+    global _name_cache, _dlc_name_cache, _name_cache_time, _name_mtime
+    names = {}
+    dlc_names = {}
+    latest_mtime = 0.0
+    for fname in _NAME_JSON_URLS:
+        for cache_dir in _iter_store_metadata_dirs():
+            path = cache_dir / fname
+            if not path.exists():
+                continue
+            try:
+                with path.open(encoding="utf-8") as handle:
+                    names.update(_normalize_name_data(json.load(handle)))
+                latest_mtime = max(latest_mtime, path.stat().st_mtime)
+            except Exception as exc:
+                logger.debug("Failed to load cached %s: %s", fname, exc)
+    for fname in _DLC_JSON_URLS:
+        for cache_dir in _iter_store_metadata_dirs():
+            path = cache_dir / fname
+            if not path.exists():
+                continue
+            try:
+                with path.open(encoding="utf-8") as handle:
+                    dlc_names.update(_normalize_name_data(json.load(handle)))
+                latest_mtime = max(latest_mtime, path.stat().st_mtime)
+            except Exception as exc:
+                logger.debug("Failed to load cached %s: %s", fname, exc)
+    _name_cache = names
+    _dlc_name_cache = dlc_names
+    _name_mtime = latest_mtime
+    _name_cache_time = time.time()
+    logger.info(
+        "Name cache warmed (%d titles, %d DLC), games.json deferred",
+        len(_name_cache),
+        len(_dlc_name_cache),
+    )
+    return bool(_name_cache)
 
 
 def ensure_loaded(force=False):
@@ -428,14 +471,32 @@ def get_game_info(app_id: int) -> dict:
     return _games_cache.get(str(app_id), {})
 
 
+def get_cached_name(app_id: int | str) -> str:
+    return _name_cache.get(str(app_id), "")
+
+
+def iter_named_apps():
+    if not _name_cache:
+        warm_name_cache_only()
+    for aid, name in _name_cache.items():
+        yield {"app_id": aid, "appid": aid, "name": name}
+
+
 def get_app_name(app_id: int | str) -> str:
-    ensure_loaded()
     appid_str = str(app_id)
-    info = _games_cache.get(appid_str, {})
+    info = _games_cache.get(appid_str, {}) if _games_cache else {}
     name = info.get("name", "") if isinstance(info, dict) else ""
     if name:
         return name
-    return _name_cache.get(appid_str, "")
+    if not _name_cache:
+        warm_name_cache_only()
+    cached = _name_cache.get(appid_str, "")
+    if cached:
+        return cached
+    ensure_loaded()
+    info = _games_cache.get(appid_str, {})
+    name = info.get("name", "") if isinstance(info, dict) else ""
+    return name or _name_cache.get(appid_str, "")
 
 
 def get_dlc_name(app_id: int | str) -> str:
@@ -643,6 +704,49 @@ def _is_game_entry(info: dict) -> bool:
     return True
 
 
+def _invalidate_browse_index():
+    global _browse_index
+    _browse_index = None
+
+
+def _drm_label(raw) -> str:
+    if isinstance(raw, (list, tuple)):
+        return ", ".join(str(x) for x in raw if x) or "Unknown"
+    text = str(raw or "").strip()
+    return text or "Unknown"
+
+
+def _get_browse_index():
+    """Sorted (newest-updated first) game tuples, built once per cache load."""
+    global _browse_index
+    if _browse_index is not None:
+        return _browse_index
+    items = []
+    for appid_str, info in _games_cache.items():
+        if not isinstance(info, dict) or not _is_game_entry(info):
+            continue
+        name = str(info.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            appid = int(appid_str)
+        except (TypeError, ValueError):
+            continue
+        updated = str(info.get("updated_date") or info.get("release_date") or "")
+        items.append((updated, appid, name, info))
+    items.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    _browse_index = items
+    return _browse_index
+
+
+def warm_browse_index():
+    """Disk-only catalog load + sorted Store index, for startup preload."""
+    ensure_loaded_cached()
+    if _games_cache:
+        _get_browse_index()
+    return bool(_browse_index)
+
+
 _TAG_SEARCH_CAP = 500
 
 
@@ -726,78 +830,59 @@ def enrich_game_dict(game: dict) -> dict:
 
 
 def browse_games_json(offset=0, per_page=20, sort_by="updated", block_nsfw=False):
-    """Return one Store page directly from the local metadata cache.
+    """Return one Store page from the in-memory catalog index.
 
-    This is deliberately network-free after ``ensure_loaded`` and keeps only
-    ``offset + per_page`` candidates in memory.  Opening the Store previously
-    built a separate 190k-entry Steam catalog and could take 30+ seconds.
+    Uses disk cache only (no GitHub fetch). The sorted index is built once
+    per catalog load so paging is a slice, not a full scan.
     """
-    import heapq
-
-    ensure_loaded()
+    ensure_loaded_cached()
     if not _games_cache:
         return {"games": [], "total": 0, "fallback": True}
 
-    window = max(1, int(offset or 0) + max(1, int(per_page or 20)))
+    off = max(0, int(offset or 0))
+    limit = max(1, int(per_page or 20))
     sort_mode = (sort_by or "updated").lower()
-    total = 0
 
-    def eligible_items():
-        nonlocal total
-        for appid_str, info in _games_cache.items():
-            if not isinstance(info, dict) or not _is_game_entry(info):
-                continue
-            if block_nsfw and bool(info.get("nsfw", False)):
-                continue
-            name = str(info.get("name") or "").strip()
-            if not name:
-                continue
-            total += 1
-            try:
-                appid = int(appid_str)
-            except (TypeError, ValueError):
-                continue
-            yield appid, name, info
+    if sort_mode in ("updated", "", "name_asc", "name_desc", "oldest", "newest"):
+        index = _get_browse_index()
+        if block_nsfw:
+            index = [row for row in index if not bool(row[3].get("nsfw", False))]
+        if sort_mode == "name_asc":
+            index = sorted(index, key=lambda row: (row[2].casefold(), row[1]))
+        elif sort_mode == "name_desc":
+            index = sorted(index, key=lambda row: (row[2].casefold(), row[1]), reverse=True)
+        elif sort_mode == "oldest":
+            index = sorted(index, key=lambda row: row[1])
+        elif sort_mode == "newest":
+            index = sorted(index, key=lambda row: row[1], reverse=True)
+        total = len(index)
+        page = index[off:off + limit]
+        games = []
+        for _updated, appid, name, info in page:
+            tags = info.get("tags", [])
+            games.append({
+                "app_id": appid,
+                "name": name,
+                "image_url": info.get("header_image", ""),
+                "drm": _drm_label(info.get("drm")),
+                "tags": tags[:6] if isinstance(tags, list) else [],
+                "source": "games_json",
+            })
+        return {"games": games, "total": total, "fallback": True, "offset": off}
 
-    def name_key(item):
-        return (item[1].casefold(), item[0])
+    return {"games": [], "total": 0, "fallback": True, "offset": off}
 
-    def id_key(item):
-        return item[0]
 
-    def updated_key(item):
-        info = item[2]
-        return (
-            str(info.get("updated_date") or info.get("release_date") or ""),
-            item[0],
-        )
+def load_cached_list() -> list[dict]:
+    """Return list of all cached game dicts for hero fetcher / search indexing."""
+    ensure_loaded()
+    res = []
+    for appid_str, info in _games_cache.items():
+        if isinstance(info, dict):
+            res.append({
+                "app_id": appid_str,
+                "appid": appid_str,
+                "name": str(info.get("name") or ""),
+            })
+    return res
 
-    items = eligible_items()
-    if sort_mode == "name_asc":
-        selected = heapq.nsmallest(window, items, key=name_key)
-    elif sort_mode == "name_desc":
-        selected = heapq.nlargest(window, items, key=name_key)
-    elif sort_mode == "oldest":
-        selected = heapq.nsmallest(window, items, key=id_key)
-    elif sort_mode == "newest":
-        selected = heapq.nlargest(window, items, key=id_key)
-    else:
-        selected = heapq.nlargest(window, items, key=updated_key)
-
-    page = selected[int(offset or 0):int(offset or 0) + int(per_page or 20)]
-    games = []
-    for appid, name, info in page:
-        games.append({
-            "app_id": appid,
-            "name": name,
-            "last_updated": info.get("updated_date", ""),
-            "status": "",
-            "size": 0,
-            "image_url": info.get("header_image", ""),
-            "drm": info.get("drm", []),
-            "tags": info.get("tags", []),
-            "nsfw": bool(info.get("nsfw", False)),
-            "dlc": info.get("dlc", {}),
-            "source": "games_json",
-        })
-    return {"games": games, "total": total, "fallback": True}

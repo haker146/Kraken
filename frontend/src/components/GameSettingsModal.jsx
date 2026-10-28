@@ -1,17 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  X, Zap, Shield, Save, RefreshCw, Package,
-  Trophy, Folder, HardDrive, ToggleLeft, ChevronDown, Download, Trash2
+  X, RefreshCw, HardDrive, Download, Trash2
 } from 'lucide-react';
 import './GameSettingsModal.css';
 
 const TABS = [
-  { id: 'crack',    label: 'Crack',         icon: Zap      },
-  { id: 'dlc',      label: 'DLC Manager',   icon: Package  },
-  { id: 'saves',    label: 'Save Files',    icon: Save     },
   { id: 'version',  label: 'Version',       icon: RefreshCw},
-  { id: 'achieve',  label: 'Achievements',  icon: Trophy   },
   { id: 'advanced', label: 'Advanced',      icon: HardDrive},
 ];
 
@@ -158,18 +153,72 @@ function SavesTab() {
   );
 }
 
-function VersionTab({ game }) {
-  const [selectedBuild, setSelectedBuild] = useState(MOCK_BUILDS[0].build);
+function VersionTab({ game, onAutoUpdateChange }) {
+  const [selectedBuild, setSelectedBuild] = useState(game.buildid || MOCK_BUILDS[0].build);
+  const [autoUpdate, setAutoUpdate] = useState(Boolean(game.auto_update));
+  const [checking, setChecking] = useState(false);
+
+  const handleToggleAutoUpdate = (val) => {
+    setAutoUpdate(val);
+    if (window.Bridge?.set_game_auto_update) {
+      window.Bridge.set_game_auto_update(String(game.app_id), val);
+    }
+    if (onAutoUpdateChange) onAutoUpdateChange(game.app_id, val);
+  };
+
+  const handleCheckUpdate = () => {
+    setChecking(true);
+    if (window.Bridge?.check_game_update) {
+      window.Bridge.check_game_update(String(game.app_id));
+    }
+    setTimeout(() => setChecking(false), 2000);
+  };
+
   return (
     <div className="modal-tab-content">
       <div className="modal-section">
         <h4 className="modal-section-title">Installed Version</h4>
         <div className="modal-info-grid">
-          <InfoRow label="Build ID" value={selectedBuild} />
+          <InfoRow label="Build ID" value={game.buildid || selectedBuild} mono />
+          <InfoRow label="Target Build" value={game.target_buildid || 'Up to date'} mono accent={Boolean(game.has_update)} />
           <InfoRow label="Branch" value="public" />
-          <InfoRow label="Install Path" value="D:\Games\Cyberpunk 2077" mono />
+          <InfoRow label="Install Path" value={game.path || 'Auto-detected'} mono />
         </div>
       </div>
+
+      <div className="modal-section">
+        <h4 className="modal-section-title">Manifest Updates</h4>
+        <div className="modal-toggle-rows">
+          <div className="modal-toggle-row">
+            <div>
+              <div className="modal-toggle-label">
+                Automatic Manifest Updates
+                <span className={`modal-au-badge ${autoUpdate ? 'on' : 'off'}`}>
+                  {autoUpdate ? 'ON' : 'OFF'}
+                </span>
+              </div>
+              <div className="modal-toggle-desc">
+                {autoUpdate
+                  ? 'Kraken automatically fetches latest manifests on launch and updates depots'
+                  : 'Disabled — suppresses Steam "Update Required" error so game launches cleanly'}
+              </div>
+            </div>
+            <Toggle checked={autoUpdate} onChange={handleToggleAutoUpdate} />
+          </div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <button
+            className="modal-btn-primary"
+            onClick={handleCheckUpdate}
+            disabled={checking}
+            style={{ width: '100%', justifyContent: 'center' }}
+          >
+            <RefreshCw size={14} className={checking ? 'spin' : ''} />
+            {checking ? 'Checking & Updating...' : 'Check & Update Manifest Now'}
+          </button>
+        </div>
+      </div>
+
       <div className="modal-section">
         <div className="modal-section-header">
           <h4 className="modal-section-title">Available Builds</h4>
@@ -192,7 +241,7 @@ function VersionTab({ game }) {
         </div>
         <button
           className="modal-btn-primary"
-          disabled={selectedBuild === MOCK_BUILDS[0].build}
+          disabled={selectedBuild === (game.buildid || MOCK_BUILDS[0].build)}
         >
           <Download size={14} /> Downgrade to Build {selectedBuild}
         </button>
@@ -222,7 +271,9 @@ function AchieveTab() {
   );
 }
 
-function AdvancedTab({ game }) {
+function AdvancedTab({ game, onRemoveLibrary, onUninstall }) {
+  const hasManifest = Boolean(game?.in_library || game?.manifest_only || game?.installed);
+  const isInstalled = Boolean(game?.installed);
   return (
     <div className="modal-tab-content">
       <div className="modal-section">
@@ -238,13 +289,29 @@ function AdvancedTab({ game }) {
           <ToggleRow label="Family Share bypass" desc="Requires LumaCore" />
         </div>
       </div>
-      <div className="modal-section">
-        <h4 className="modal-section-title">Danger Zone</h4>
-        <div className="modal-actions-list">
-          <ActionRow icon={Trash2} title="Remove from Library" desc="Keeps files on disk" color="red" />
-          <ActionRow icon={HardDrive} title="Uninstall Game" desc="Permanently deletes all game files" color="red" />
+      {hasManifest && (
+        <div className="modal-section">
+          <h4 className="modal-section-title">Danger Zone</h4>
+          <div className="modal-actions-list">
+            <ActionRow
+              icon={Trash2}
+              title="Remove from Library"
+              desc="Removes manifest, keeps files on disk"
+              color="red"
+              onClick={onRemoveLibrary}
+            />
+            {isInstalled && (
+              <ActionRow
+                icon={HardDrive}
+                title="Uninstall Game"
+                desc="Permanently deletes all game files and removes manifest"
+                color="red"
+                onClick={onUninstall}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -285,16 +352,12 @@ function ActionRow({ icon: Icon, title, desc, color = 'accent', active = false, 
 }
 
 // ── Modal ─────────────────────────────────────────────────
-export default function GameSettingsModal({ game, onClose }) {
-  const [activeTab, setActiveTab] = useState('crack');
+export default function GameSettingsModal({ game, onClose, onRemoveLibrary, onUninstall, onAutoUpdateChange }) {
+  const [activeTab, setActiveTab] = useState('version');
 
   const TAB_CONTENT = {
-    crack:    <CrackTab game={game} />,
-    dlc:      <DlcTab game={game} />,
-    saves:    <SavesTab />,
-    version:  <VersionTab game={game} />,
-    achieve:  <AchieveTab />,
-    advanced: <AdvancedTab game={game} />,
+    version:  <VersionTab game={game} onAutoUpdateChange={onAutoUpdateChange} />,
+    advanced: <AdvancedTab game={game} onRemoveLibrary={onRemoveLibrary} onUninstall={onUninstall} />,
   };
 
   return (

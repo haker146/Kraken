@@ -30,7 +30,10 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import httpx
-import rarfile  # type: ignore
+try:
+    import rarfile  # type: ignore
+except ImportError:
+    rarfile = None
 
 logger = logging.getLogger(__name__)
 
@@ -116,16 +119,26 @@ def _extract_dlls_via_subprocess(
                     found = p
                     break
             if found is None:
+                if dll in _LC_OPTIONAL_DLLS:
+                    _progress(f"Optional DLL not in archive: {dll}", callback)
+                    continue
                 _progress(f"DLL not found in extracted archive: {dll}", callback)
                 return False
             (steam_path / dll).write_bytes(found.read_bytes())
             _progress(f"Installed {dll}", callback)
     return True
 
-_LUMACORE_GITHUB_REPO = "KoriaPolis/LumaCore"
-_LUMACORE_RELEASE_API = f"https://api.github.com/repos/{_LUMACORE_GITHUB_REPO}/releases/latest"
+# Hosted by Kraken on GitHub Releases tagged luma-* (branch LumaCore).
+# Do not pull injector source into main — only published zip assets.
+_LUMACORE_HOST_REPO = "haker146/Kraken"
+_LUMACORE_TAG_PREFIXES = ("luma-", "lumacore-")
+_LUMACORE_RELEASES_API = f"https://api.github.com/repos/{_LUMACORE_HOST_REPO}/releases"
+_LUMACORE_RELEASE_API = f"https://api.github.com/repos/{_LUMACORE_HOST_REPO}/releases/latest"
 
-_LC_DLLS = ("dwmapi.dll", "xinput1_4.dll", "LumaCore.dll", "LumaCorePayload.dll")
+_LC_REQUIRED_DLLS = ("xinput1_4.dll", "LumaCore.dll")
+_LC_OPTIONAL_DLLS = ("LumaCorePayload.dll",)
+_LC_DLLS = _LC_REQUIRED_DLLS + _LC_OPTIONAL_DLLS
+_LC_LEGACY_HOOKS = ("dwmapi.dll",)
 
 _GL_MARKER = ".steamidra_gl_cleaned"
 _LEGACY_MARKER_DIR = "lumacore"
@@ -249,6 +262,19 @@ def _run_gl_cleanup(steam_path: Path, callback: Optional[Callable[[str], None]])
                 _progress(f"Could not remove folder {name}/: {exc}", callback)
 
 
+def _strip_legacy_dwmapi(steam_path: Path, callback: Optional[Callable[[str], None]]) -> None:
+    """Current LumaCore hooks via xinput1_4.dll only — leftover dwmapi conflicts with overlays."""
+    for name in _LC_LEGACY_HOOKS:
+        target = steam_path / name
+        if not target.is_file():
+            continue
+        try:
+            target.unlink()
+            _progress(f"Removed leftover {name} (xinput1_4 is the only hook now).", callback)
+        except OSError as exc:
+            _progress(f"Could not remove leftover {name}: {exc}", callback)
+
+
 def _reset_lumacore_files(steam_path: Path, callback: Optional[Callable[[str], None]]) -> None:
     """Remove previously installed LumaCore DLLs so a clean install can follow."""
     for subdir, name in _LC_RESET_FILES:
@@ -345,8 +371,12 @@ def _write_pattern_cache(target: Path, body: str) -> None:
 def _prewarm_lumacore_patterns(
     steam_path: Path,
     callback: Optional[Callable[[str], None]],
-) -> None:
-    """Best-effort cache fill for offline Steam launches after install."""
+) -> int:
+    """Best-effort cache fill for offline Steam launches after install.
+
+    Returns the number of pattern files newly written.
+    """
+    wrote = 0
     jobs = (
         ("steamclient", steam_path / "steamclient64.dll", ""),
         ("steamui", steam_path / "steamui.dll", ""),
@@ -375,73 +405,132 @@ def _prewarm_lumacore_patterns(
             continue
         try:
             _write_pattern_cache(target, body)
+            wrote += 1
             _progress(f"Pattern cache prewarmed for {label}.", callback)
         except OSError as exc:
             _progress(f"Pattern cache write failed for {label}: {exc}", callback)
+    return wrote
 
 
-def prewarm_pattern_cache_if_missing(steam_path) -> None:
+def _remember_steam_client_sha(steam_path: Path) -> bool:
+    """True when steamclient64.dll changed since the last Kraken launch."""
+    dll = steam_path / "steamclient64.dll"
+    if not dll.is_file():
+        return False
+    try:
+        sha = _sha256_file(dll)
+    except OSError:
+        return False
+    from sff.core.storage.settings import get_setting, set_setting
+    from sff.core.structs import Settings
+    last = str(get_setting(Settings.LAST_STEAM_CLIENT_SHA) or "").strip()
+    if sha and sha != last:
+        try:
+            set_setting(Settings.LAST_STEAM_CLIENT_SHA, sha)
+        except Exception:
+            pass
+        return bool(last)
+    if not last and sha:
+        try:
+            set_setting(Settings.LAST_STEAM_CLIENT_SHA, sha)
+        except Exception:
+            pass
+    return False
+
+
+def prewarm_pattern_cache_if_missing(steam_path) -> dict:
     """Run at app startup — fill missing LumaCore pattern TOMLs for the current
     Steam client build if LumaCore is installed. No-op otherwise."""
+    result = {"wrote": 0, "steam_updated": False, "restart_needed": False}
     try:
         if not steam_path:
-            return
-        if not (steam_path / "LumaCore.dll").is_file() and not (steam_path / "dwmapi.dll").is_file():
-            return
-        _prewarm_lumacore_patterns(steam_path, None)
+            return result
+        steam_path = Path(steam_path)
+        if not (steam_path / "LumaCore.dll").is_file() and not (steam_path / "xinput1_4.dll").is_file():
+            return result
+        steam_updated = _remember_steam_client_sha(steam_path)
+        wrote = _prewarm_lumacore_patterns(steam_path, None)
+        result["wrote"] = int(wrote or 0)
+        result["steam_updated"] = bool(steam_updated)
+        result["restart_needed"] = bool(steam_updated or wrote)
+        if result["restart_needed"]:
+            try:
+                from sff.core.storage.settings import set_setting
+                from sff.core.structs import Settings
+                set_setting(Settings.STEAM_RESTART_NEEDED, True)
+            except Exception:
+                pass
+        return result
     except Exception as exc:
         logger.debug("Startup LumaCore pattern prewarm skipped: %s", exc)
+        return result
 
 
-def _fetch_release_asset(variant: str = "release") -> Optional[tuple[str, str]]:
-    """Return (download_url, filename) for the best asset in the latest GitHub release.
+def _is_lumacore_release(release: dict) -> bool:
+    tag = str(release.get("tag_name") or "").strip().lower()
+    name = str(release.get("name") or "").strip().lower()
+    return any(tag.startswith(prefix) for prefix in _LUMACORE_TAG_PREFIXES) or "lumacore" in name
 
-    *variant* picks which build to grab. "release" (default) prefers
-    `release.zip` / `release.rar`, "debug" prefers `debug.zip` / `debug.rar`.
-    Falls back to the first .zip whose name starts with the requested
-    variant, then to the first .zip asset overall.
-    """
+
+def _pick_release_asset(assets: list, variant: str) -> Optional[tuple[str, str]]:
     variant_lower = (variant or "release").strip().lower()
     if variant_lower not in ("release", "debug"):
         variant_lower = "release"
+    primary_names = (f"{variant_lower}.zip", f"{variant_lower}.rar")
+    for priority_name in primary_names:
+        for asset in assets:
+            if str(asset.get("name", "")).lower() == priority_name:
+                return asset.get("browser_download_url"), asset.get("name")
+    for asset in assets:
+        name_lower = str(asset.get("name", "")).lower()
+        if name_lower.endswith(".zip") and name_lower.startswith(variant_lower):
+            return asset.get("browser_download_url"), asset.get("name")
+    for asset in assets:
+        name = str(asset.get("name", ""))
+        if name.lower().endswith(".zip") and "source code" not in name.lower():
+            return asset.get("browser_download_url"), name
+    return None
+
+
+def _fetch_hosted_lumacore_release() -> Optional[dict]:
+    """Latest luma-* GitHub Release on the Kraken repo (not /releases/latest)."""
+    resp = httpx.get(
+        _LUMACORE_RELEASES_API,
+        params={"per_page": 30},
+        headers={"Accept": "application/vnd.github+json", "Cache-Control": "no-cache"},
+        timeout=10,
+        follow_redirects=True,
+    )
+    resp.raise_for_status()
+    releases = resp.json()
+    if not isinstance(releases, list):
+        return None
+    for release in releases:
+        if isinstance(release, dict) and _is_lumacore_release(release):
+            return release
+    return None
+
+
+def _fetch_release_asset(variant: str = "release") -> Optional[tuple[str, str]]:
+    """Return (download_url, filename) for the hosted luma-* release zip."""
     try:
-        resp = httpx.get(
-            _LUMACORE_RELEASE_API,
-            headers={"Accept": "application/vnd.github+json", "Cache-Control": "no-cache"},
-            timeout=10,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-        release_data = resp.json()
-        assets = release_data.get("assets", [])
+        release_data = _fetch_hosted_lumacore_release()
+        if not release_data:
+            logger.warning(
+                "No luma-* GitHub Release on %s yet. Publish release.zip tagged luma-V38.",
+                _LUMACORE_HOST_REPO,
+            )
+            return None
+        assets = release_data.get("assets", []) or []
         tag_name = release_data.get("tag_name", "?")
-
-        primary_names = (f"{variant_lower}.zip", f"{variant_lower}.rar")
-        for priority_name in primary_names:
-            for asset in assets:
-                if asset.get("name", "").lower() == priority_name:
-                    logger.debug("LumaCore release asset: %s (tag=%s)", asset["name"], tag_name)
-                    return asset["browser_download_url"], asset["name"]
-
-        # Loose match: any zip whose filename starts with the variant
-        # token. Catches things like "release-v8.zip".
-        for asset in assets:
-            name_lower = asset.get("name", "").lower()
-            if name_lower.endswith(".zip") and name_lower.startswith(variant_lower):
-                logger.debug("LumaCore release asset (loose match): %s (tag=%s)", asset["name"], tag_name)
-                return asset["browser_download_url"], asset["name"]
-
-        # Final fallback: any zip that is not a source-code tarball.
-        # GitHub auto-generates "Source code (zip)" for every release
-        # tag and picking that would give us headers + .cpp but no DLLs.
-        for asset in assets:
-            name = asset.get("name", "")
-            if name.lower().endswith(".zip") and "source code" not in name.lower():
-                logger.debug("LumaCore release asset (fallback): %s (tag=%s)", name, tag_name)
-                return asset["browser_download_url"], name
-
+        picked = _pick_release_asset(assets, variant)
+        if not picked or not picked[0]:
+            logger.warning("LumaCore release %s has no zip asset", tag_name)
+            return None
+        logger.debug("LumaCore release asset: %s (tag=%s)", picked[1], tag_name)
+        return picked
     except Exception as exc:
-        logger.warning("GitHub release fetch failed: %s", exc)
+        logger.warning("GitHub LumaCore release fetch failed: %s", exc)
     return None
 
 
@@ -462,6 +551,8 @@ def _extract_zip(archive: Path, steam_path: Path,
             for dll in _LC_DLLS:
                 member = _dll_name_match(names, dll)
                 if member is None:
+                    if dll in _LC_OPTIONAL_DLLS:
+                        continue
                     logger.error("DLL not found in ZIP: %s (names=%s)", dll, names)
                     return False
                 try:
@@ -480,12 +571,17 @@ def _extract_zip(archive: Path, steam_path: Path,
 
 def _extract_rar(archive: Path, steam_path: Path,
                  callback: Optional[Callable[[str], None]]) -> bool:
+    if rarfile is None:
+        logger.info("rarfile module not available, using external extractor")
+        return _extract_dlls_via_subprocess(archive, steam_path, callback)
     try:
         with rarfile.RarFile(str(archive), "r") as rf:
             names = rf.namelist()
             for dll in _LC_DLLS:
                 member = _dll_name_match(names, dll)
                 if member is None:
+                    if dll in _LC_OPTIONAL_DLLS:
+                        continue
                     logger.error("DLL not found in RAR: %s", dll)
                     return False
                 try:
@@ -568,7 +664,11 @@ def install_lumacore(
 
     asset = _fetch_release_asset(variant=variant)
     if asset is None:
-        msg = "Could not reach GitHub releases. Check your internet connection."
+        msg = (
+            f"No LumaCore zip on {_LUMACORE_HOST_REPO} yet. "
+            "Publish a GitHub Release tagged luma-V38 with release.zip "
+            "(from the LumaCore branch)."
+        )
         logger.error(msg)
         return False, msg
 
@@ -603,11 +703,13 @@ def install_lumacore(
     if not ok:
         return False, "Failed to extract DLLs from the release archive."
 
-    for dll in _LC_DLLS:
+    for dll in _LC_REQUIRED_DLLS:
         if not (steam_path / dll).is_file():
             msg = f"DLL missing after install: {dll}"
             logger.error(msg)
             return False, msg
+
+    _strip_legacy_dwmapi(steam_path, progress_callback)
 
     _progress("Checking LumaCore pattern cache...", progress_callback)
     try:
@@ -618,6 +720,12 @@ def install_lumacore(
 
     msg = "LumaCore installed."
     _progress(msg, progress_callback)
+    try:
+        from sff.core.storage.settings import set_setting
+        from sff.core.structs import Settings
+        set_setting(Settings.STEAM_RESTART_NEEDED, True)
+    except Exception:
+        pass
     # Record the version we just installed so check_for_lumacore_update can
     # compare against the latest GitHub release on subsequent launches. Best
     # effort — the install itself is already done at this point.
@@ -634,10 +742,8 @@ def install_lumacore(
 # LumaCore version checker
 # ─────────────────────────────────────────────────────────────────────────
 #
-# Releases on github.com/KoriaPolis/LumaCore are tagged like "V4", "V5", etc.
-# The release name is "LumaCore V4". We compare the latest tag from GitHub
-# against the value cached in settings under LUMACORE_INSTALLED_VERSION and
-# treat a mismatch as "update available".
+# Hosted releases on github.com/haker146/Kraken are tagged luma-V38, etc.
+# We compare the latest luma-* tag against LUMACORE_INSTALLED_VERSION.
 #
 # Cadence: at most one HTTP probe per 6 hours, regardless of how many times
 # this runs in a session. Cached result lives in Settings.LUMACORE_LAST_CHECK
@@ -655,9 +761,10 @@ def _normalise_lc_version(raw: str) -> str:
     if not raw:
         return ""
     token = raw.strip()
-    # Drop a leading "LumaCore " label if the tag was actually the release name.
     lower = token.lower()
-    if lower.startswith("lumacore"):
+    if lower.startswith("luma-") or lower.startswith("lumacore-"):
+        token = token.split("-", 1)[-1].strip()
+    elif lower.startswith("lumacore"):
         token = token[len("lumacore"):].strip()
     # Normalise the V to uppercase so "v4" and "V4" compare equal.
     if token.startswith(("v", "V")):
@@ -666,23 +773,26 @@ def _normalise_lc_version(raw: str) -> str:
 
 
 def _fetch_latest_release_tag(timeout: float = 10.0) -> Optional[str]:
-    """Hit /releases/latest and pull the tag_name. None on any failure.
-    Caller is responsible for logging — this just returns the value.
-    """
+    """Latest luma-* tag on the Kraken repo. None on any failure."""
     try:
         resp = httpx.get(
-            _LUMACORE_RELEASE_API,
+            _LUMACORE_RELEASES_API,
+            params={"per_page": 30},
             headers={"Accept": "application/vnd.github+json"},
             timeout=timeout,
             follow_redirects=True,
         )
         resp.raise_for_status()
         payload = resp.json()
-        # tag_name is the canonical version anchor; release name is a friendlier
-        # display fallback.
-        return _normalise_lc_version(
-            payload.get("tag_name") or payload.get("name") or ""
-        ) or None
+        if not isinstance(payload, list):
+            return None
+        for release in payload:
+            if not isinstance(release, dict) or not _is_lumacore_release(release):
+                continue
+            return _normalise_lc_version(
+                release.get("tag_name") or release.get("name") or ""
+            ) or None
+        return None
     except Exception as exc:
         logger.debug("LumaCore release tag fetch failed: %s", exc)
         return None
@@ -697,27 +807,63 @@ def get_installed_lumacore_version(steam_path: Path) -> str:
     from sff.core.storage.settings import get_setting
     from sff.core.structs import Settings
 
-    # Only treat the cached version as authoritative when the actual DLLs are
-    # still on disk. Removing the DLLs by hand should reset the perceived
-    # install so the next "Auto LC Setup" actually re-runs.
-    for dll in _LC_DLLS:
-        if not (steam_path / dll).is_file():
+    if not steam_path:
+        try:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
+            else:
+                from sff.registry_access import find_steam_path_from_registry
+                reg = find_steam_path_from_registry()
+                if reg:
+                    steam_path = Path(reg)
+        except Exception:
+            pass
+
+    if not steam_path:
+        return ""
+
+    try:
+        steam_path = Path(steam_path)
+        if not steam_path.is_dir():
             return ""
-    saved = get_setting(Settings.LUMACORE_INSTALLED_VERSION) or ""
+    except Exception:
+        return ""
+
+    # At minimum, LumaCore.dll must exist on disk, and a hook proxy.
+    # Older installs used dwmapi.dll; current ones use xinput1_4.dll.
+    # Count both so a blocked-Steam / portable install is not reported as missing.
+    has_core = (steam_path / "LumaCore.dll").is_file()
+    has_proxy = any(
+        (steam_path / p).is_file()
+        for p in ("xinput1_4.dll", "dwmapi.dll", "version.dll", "winmm.dll", "LumaCorePayload.dll")
+    )
+    if not (has_core and has_proxy):
+        return ""
+
+    def _usable_version(raw) -> str:
+        token = _normalise_lc_version(str(raw or "").strip())
+        if not token:
+            return ""
+        if token.lower() in ("null", "none", "undefined", "installed"):
+            return ""
+        return token
+
+    saved = _usable_version(get_setting(Settings.LUMACORE_INSTALLED_VERSION))
     if saved:
-        return _normalise_lc_version(str(saved))
-    # Manual install — ask LumaCore's own status.json for its version.
+        return saved
+    # Manual / older install — LumaCore writes its own label here.
     try:
         import json
         status_path = steam_path / "lumacore" / "status.json"
         if status_path.is_file():
             payload = json.loads(status_path.read_text(encoding="utf-8"))
-            version = str(payload.get("lumacore_version") or "").strip()
+            version = _usable_version(payload.get("lumacore_version"))
             if version:
-                return _normalise_lc_version(version)
+                return version
     except Exception:
         pass
-    return ""
+    return "Installed"
 
 
 def remember_installed_lumacore_version(version: str) -> None:
@@ -744,6 +890,19 @@ def check_for_lumacore_update(steam_path: Path, force: bool = False) -> dict:
     import time
     from sff.core.storage.settings import get_setting, set_setting
     from sff.core.structs import Settings
+
+    if not steam_path:
+        try:
+            sp = get_setting(Settings.STEAM_PATH)
+            if sp:
+                steam_path = Path(sp)
+            else:
+                from sff.registry_access import find_steam_path_from_registry
+                reg = find_steam_path_from_registry()
+                if reg:
+                    steam_path = Path(reg)
+        except Exception:
+            pass
 
     installed = get_installed_lumacore_version(steam_path)
 
@@ -781,12 +940,21 @@ def check_for_lumacore_update(steam_path: Path, force: bool = False) -> dict:
             source = "cache"
 
     update_available = bool(installed and latest and installed != latest)
+    restart_needed = False
+    try:
+        restart_needed = str(get_setting(Settings.STEAM_RESTART_NEEDED) or "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+    except Exception:
+        restart_needed = False
     return {
         "installed": installed,
         "latest": latest,
         "update_available": update_available,
         "checked_at": checked_at,
         "source": source,
+        "restart_needed": bool(restart_needed),
+        "steam_updated": bool(restart_needed),
     }
 
 

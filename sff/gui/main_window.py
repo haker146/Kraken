@@ -23,7 +23,7 @@ from pathlib import Path
 from PyQt6.QtCore import QByteArray, QEasingCurve, QEvent, QObject, QPropertyAnimation, QThread, QTimer, QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPixmap, QTextCursor
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEngineSettings
+from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QApplication,
@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QScrollArea,
@@ -242,9 +243,25 @@ class SFFMainWindow(QMainWindow):
         root_layout.addWidget(self.tabs)
 
         # ── New Web UI (visible by default) ──
+        try:
+            from PyQt6.QtWebEngineCore import QWebEnginePage as _WebPage
+        except ImportError:
+            from PyQt6.QtWebEngineWidgets import QWebEnginePage as _WebPage
+
+        class _ConsoleWebPage(_WebPage):
+            def javaScriptConsoleMessage(self, level, msg, line_number, source_id):
+                logger.debug("[WebConsole] %s (%s:%d)", msg, source_id, line_number)
+
         self._web_view = QWebEngineView()
+        self._web_view.setPage(_ConsoleWebPage(self._web_view))
         self._web_view_freed = False
         self._web_index_path = None
+        try:
+            from PyQt6.QtGui import QColor as _QColor
+            self._web_view.page().setBackgroundColor(_QColor("#060810"))
+            self._web_view.setStyleSheet("background-color: #060810;")
+        except Exception:
+            pass
         # Mark the view as opaque so Qt's drag/resize/paint pipeline skips
         # the parent-erase step under it. Without this, every drag tick on
         # Windows DWM hands the compositor a frame where the parent gets
@@ -297,8 +314,7 @@ class SFFMainWindow(QMainWindow):
         )
         self._web_view.page().renderProcessTerminated.connect(self._on_render_crash)
         self._install_web_splash()
-        saved_ui_mode = get_setting(_S.USE_MODERN_UI)
-        self._web_ui_active = True if saved_ui_mode is None else bool(saved_ui_mode)
+        self._web_ui_active = True
         self._web_ui_loaded = False
 
         # LumaCore status banner poller. Reads <steam>\lumacore\status.json
@@ -348,6 +364,7 @@ class SFFMainWindow(QMainWindow):
             self.tabs.setVisible(True)
             self._web_view.setVisible(False)
         else:
+            self.menuBar().setVisible(False)
             self.tabs.setVisible(False)
             self._web_view.setVisible(True)
             self._load_web_ui()
@@ -857,7 +874,7 @@ class SFFMainWindow(QMainWindow):
             self._web_splash_effect = None
             return
 
-        bg_hex = theme_background(self._current_theme)
+        bg_hex = "#060810"
 
         # QtWebEngine paints white before the page is up. setBackgroundColor
         # on the page plus an opaque widget background sheet means the
@@ -868,54 +885,110 @@ class SFFMainWindow(QMainWindow):
             pass
         self._web_view.setStyleSheet(f"background-color: {bg_hex};")
 
-        splash = QLabel(self._web_view)
+        splash = QWidget(self._web_view)
         splash.setObjectName("WebSplashOverlay")
-        splash.setAlignment(Qt.AlignmentFlag.AlignCenter)
         splash.setStyleSheet(
-            f"QLabel#WebSplashOverlay {{ background-color: {bg_hex}; }}"
+            f"#WebSplashOverlay {{ background-color: {bg_hex}; }}"
+            "#WebSplashOverlay QLabel { background: transparent; }"
+            "#WebSplashOverlay QProgressBar {"
+            "  background: rgba(167, 139, 250, 0.12); border: 1px solid rgba(167, 139, 250, 0.28);"
+            "  border-radius: 7px; height: 8px; text-align: center; max-width: 220px;"
+            "}"
+            "#WebSplashOverlay QProgressBar::chunk {"
+            "  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,"
+            "    stop:0 #38bdf8, stop:1 #a78bfa); border-radius: 7px;"
+            "}"
         )
         splash.setAutoFillBackground(True)
+        lay = QVBoxLayout(splash)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.setSpacing(16)
 
-        for candidate in ("kraken.png", "kraken.ico", "SFF.png", "SFF.ico"):
-            try:
-                from sff.core.utils import root_folder as _root_folder
-                logo_path = _root_folder() / candidate
-            except Exception:
-                logo_path = Path(candidate)
+        logo = QLabel()
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_paths = []
+        try:
+            from sff.core.utils import root_folder as _root_folder
+            root = _root_folder()
+            logo_paths = [
+                root / "kraken.png",
+                root / "sff" / "webui_react" / "kraken.png",
+                root / "frontend" / "public" / "kraken.png",
+                root / "frontend" / "src" / "assets" / "kraken.png",
+                root / "kraken.ico",
+                root / "SFF.png",
+            ]
+        except Exception:
+            logo_paths = [Path("kraken.png")]
+        for logo_path in logo_paths:
             if logo_path.exists():
                 pix = QPixmap(str(logo_path))
                 if not pix.isNull():
-                    splash.setPixmap(pix.scaled(
-                        256, 256,
+                    logo.setPixmap(pix.scaled(
+                        148, 148,
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,
                     ))
+                    lay.addWidget(logo)
+                    self._web_splash_logo = logo
                     break
+
+        title = QLabel("KRAKEN")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(
+            "color: #f1f5f9; font-size: 26px; font-weight: 800; letter-spacing: 8px;"
+        )
+        msg = QLabel("Loading…")
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg.setStyleSheet("color: #94a3b8; font-size: 13px;")
+        bar = QProgressBar()
+        bar.setRange(0, 100)
+        bar.setValue(8)
+        bar.setTextVisible(False)
+        bar.setFixedWidth(220)
+        bar.setFixedHeight(8)
+        lay.addWidget(title)
+        lay.addWidget(bar)
+        lay.addWidget(msg)
 
         splash.resize(self._web_view.size())
         splash.raise_()
         splash.show()
 
         self._web_splash = splash
+        self._web_splash_bar = bar
+        self._web_splash_msg = msg
         self._web_splash_anim = None
         self._web_splash_effect = None
+        self._web_splash_progress = 8
+        self._web_splash_tick = QTimer(splash)
+        self._web_splash_tick.setInterval(180)
+        self._web_splash_tick.timeout.connect(self._tick_web_splash)
+        self._web_splash_tick.start()
 
         # Keep the splash sized to the view across resizes.
         self._web_view.installEventFilter(self)
 
-        self._web_view.loadFinished.connect(self._on_web_view_load_finished)
+        if not getattr(self, "_web_splash_load_hooked", False):
+            self._web_view.loadFinished.connect(self._on_web_view_load_finished)
+            self._web_splash_load_hooked = True
+        # HTML can load long before React paints. Keep the splash until
+        # the frontend calls signal_ready, with a long safety timeout.
+        QTimer.singleShot(12000, self.dismiss_splash)
 
     def _on_web_view_load_finished(self, ok: bool):
         if not ok:
             self._web_view.setHtml(
-                "<html><body style='background:#1a1a1a;color:#ccc;display:flex;"
+                "<html><body style='background:#060810;color:#ccc;display:flex;"
                 "align-items:center;justify-content:center;height:100vh;"
                 "font-family:sans-serif;text-align:center'>"
                 "<div><h2 style='color:#c9b6ff'>Kraken UI failed to load</h2>"
                 "<p>Try restarting or switching to Classic UI in Settings.</p></div>"
                 "</body></html>"
             )
-        self.dismiss_splash()
+            self.dismiss_splash()
+            return
+        # Successful HTML load is not enough — wait for React to paint.
 
     def _on_render_crash(self, status):
         import logging
@@ -927,10 +1000,27 @@ class SFFMainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _tick_web_splash(self):
+        bar = getattr(self, "_web_splash_bar", None)
+        if bar is None:
+            return
+        current = getattr(self, "_web_splash_progress", 8)
+        if current >= 88:
+            return
+        current = min(88, current + 2)
+        self._web_splash_progress = current
+        bar.setValue(current)
+
     def dismiss_splash(self):
         splash = getattr(self, "_web_splash", None)
         if splash is None or not splash.isVisible():
             return
+        tick = getattr(self, "_web_splash_tick", None)
+        if tick is not None:
+            tick.stop()
+        bar = getattr(self, "_web_splash_bar", None)
+        if bar is not None:
+            bar.setValue(100)
 
         effect = QGraphicsOpacityEffect(splash)
         effect.setOpacity(1.0)
@@ -967,11 +1057,12 @@ class SFFMainWindow(QMainWindow):
     # ── LumaCore status banner ───────────────────────────────────
 
     def _show_lumacore_banner(self, text: str):
+        # Legacy SteaMidra Qt overlay used to eat the whole window. The
+        # React Home banner owns this warning now.
+        logger.info("LumaCore pattern status: %s", text)
         banner = getattr(self, "_lumacore_banner", None)
-        if banner is None:
-            return
-        banner.setText(text)
-        banner.setVisible(True)
+        if banner is not None:
+            banner.setVisible(False)
 
     def _hide_lumacore_banner(self):
         banner = getattr(self, "_lumacore_banner", None)
@@ -1920,6 +2011,7 @@ class SFFMainWindow(QMainWindow):
         entries = scan_all_save_locations(steam_path=steam_path, steam32_id=steam32_id)
         if not entries:
             return
+        cfg = cfg or {}
         provider = cfg.get('provider', 'local').lower()
         backed_up = 0
         if provider == 'local':

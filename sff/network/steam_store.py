@@ -98,7 +98,9 @@ def _safe_media_url(value: str) -> str:
     lower = url.lower()
     if lower.startswith("javascript:") or lower.startswith("data:"):
         return ""
-    if lower.startswith("http://") or lower.startswith("https://"):
+    if lower.startswith("http://"):
+        return "https://" + url[7:]
+    if lower.startswith("https://"):
         return url
     return ""
 
@@ -213,6 +215,25 @@ def sanitize_store_html(html) -> str:
     return parser.get_html()
 
 
+def _trailer_quality_key(url: str) -> tuple[int, int]:
+    """MP4 first, then highest Steam resolution (movie_max / 1080 before 480)."""
+    u = (url or "").lower()
+    fmt = 0 if ".mp4" in u else (1 if ".webm" in u else 2)
+    if "movie_max" in u or "1080" in u or "/max" in u:
+        q = 0
+    elif "720" in u:
+        q = 1
+    elif "movie480" in u or "480" in u:
+        q = 3
+    else:
+        q = 2
+    return (fmt, q)
+
+
+def _sort_trailer_urls(urls: list[str]) -> list[str]:
+    return sorted((u for u in urls if u), key=_trailer_quality_key)
+
+
 def _movie_urls(movie: dict, app_id: str = "") -> list[str]:
     """Build playable trailer URLs.
 
@@ -251,12 +272,12 @@ def _movie_urls(movie: dict, app_id: str = "") -> list[str]:
         "https://cdn.akamai.steamstatic.com/steam/apps/{id}/{file}",
         "https://video.akamai.steamstatic.com/store_trailers/{id}/{file}",
     )
-    files = ("movie_max.mp4", "movie480.mp4", "movie_max.webm", "movie480.webm")
+    files = ("movie_max.mp4", "movie.mp4", "movie480.mp4", "movie_max.webm", "movie480.webm")
     for mid in ids:
         for host in hosts:
             for fname in files:
                 _add(host.format(id=mid, file=fname))
-    return urls
+    return _sort_trailer_urls(urls)
 
 
 def _sanitize_requirements(html) -> str:
@@ -431,19 +452,15 @@ def _merge_store_page_media(details: dict, app_id: str, language="english") -> N
         mid = groups[0] or groups[1]
         if not mid or mid == str(app_id):
             continue
-        for fname in ("movie480.mp4", "movie_max.mp4"):
+        for fname in ("movie_max.mp4", "movie480.mp4"):
             cand = f"https://cdn.akamai.steamstatic.com/steam/apps/{mid}/{fname}"
             if cand not in seen_mp4:
                 seen_mp4.add(cand)
                 extra_mp4.append(cand)
     if extra_mp4:
-        trailer_urls = list(details.get("trailer_urls") or [])
-        for mp4 in extra_mp4:
-            if mp4 not in trailer_urls:
-                trailer_urls.append(mp4)
+        trailer_urls = _sort_trailer_urls(list(details.get("trailer_urls") or []) + extra_mp4)
         details["trailer_urls"] = trailer_urls
-        if not details.get("trailer"):
-            details["trailer"] = trailer_urls[0]
+        details["trailer"] = trailer_urls[0] if trailer_urls else details.get("trailer") or ""
         movies = details.setdefault("movies", [])
         known = {str(m.get("id") or "") for m in movies}
         for mp4 in extra_mp4:
@@ -468,6 +485,11 @@ def _merge_store_page_media(details: dict, app_id: str, language="english") -> N
             })
             if mid:
                 known.add(mid)
+    for movie in details.get("movies") or []:
+        ranked = _sort_trailer_urls(list(movie.get("urls") or []) + ([movie.get("url")] if movie.get("url") else []))
+        if ranked:
+            movie["urls"] = ranked
+            movie["url"] = ranked[0]
 
 
 _STEAM_API_LANG = {

@@ -4,12 +4,53 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
     <title>Kraken</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
-    <script type="module" crossorigin src="./assets/index-ByQFwbos.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CsVmU6yu.css">
+    <style>html,body{background:#060810;width:100%;height:100%;margin:0;overflow:hidden}#boot-splash{z-index:99999;color:#e2e8f0;background:#060810;flex-direction:column;justify-content:center;align-items:center;gap:18px;font-family:Inter,Segoe UI,system-ui,sans-serif;transition:opacity .35s;display:flex;position:fixed;inset:0}#boot-splash.boot-out{opacity:0;pointer-events:none}#boot-splash .boot-logo-wrap{filter:drop-shadow(0 0 22px #a78bfa59);width:168px;height:168px;animation:2.4s ease-in-out infinite boot-bob;position:relative}#boot-splash .boot-logo{object-fit:contain;z-index:2;width:128px;height:128px;position:absolute;top:20px;left:20px}#boot-splash .boot-tentacle{opacity:.7;border:3px solid #0000;border-top-color:#a78bfa;border-radius:50%;position:absolute}#boot-splash .t1{width:150px;height:110px;animation:2.2s ease-in-out infinite boot-t1;top:48px;left:8px}#boot-splash .t2{border-top-color:#38bdf8;width:120px;height:90px;animation:2.6s ease-in-out infinite boot-t2;top:28px;left:-8px}#boot-splash .t3{width:130px;height:80px;animation:2.4s ease-in-out infinite reverse boot-t1;top:56px;right:-6px}#boot-splash .boot-mark{letter-spacing:.42em;color:#f1f5f9;padding-left:.42em;font-size:26px;font-weight:800}#boot-splash .boot-bar{background:#a78bfa29;border:1px solid #a78bfa47;border-radius:99px;width:220px;height:8px;overflow:hidden}#boot-splash .boot-bar-fill{background:linear-gradient(90deg,#38bdf8,#a78bfa);border-radius:99px;width:12%;height:100%;animation:7.2s ease-out forwards boot-bar}#boot-splash .boot-msg{color:#94a3b8;letter-spacing:.04em;font-size:13px}@keyframes boot-bob{0%,to{transform:translateY(0)rotate(-2deg)}50%{transform:translateY(-7px)rotate(3deg)}}@keyframes boot-t1{0%,to{transform:rotate(-12deg)}50%{transform:rotate(10deg)}}@keyframes boot-t2{0%,to{transform:rotate(8deg)}50%{transform:rotate(-14deg)}}@keyframes boot-bar{0%{width:10%}to{width:88%}}</style>
+    <script type="module" crossorigin src="./assets/index-DZjIOKBQ.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-HBVnWgfG.css">
   </head>
   <body>
+    <div id="boot-splash">
+      <div class="boot-logo-wrap">
+        <span class="boot-tentacle t1"></span>
+        <span class="boot-tentacle t2"></span>
+        <span class="boot-tentacle t3"></span>
+        <img class="boot-logo" src="./kraken.png" alt="Kraken" />
+      </div>
+      <div class="boot-mark">KRAKEN</div>
+      <div class="boot-bar"><div class="boot-bar-fill"></div></div>
+      <div class="boot-msg">Loading…</div>
+    </div>
     <div id="root"></div>
+    <script>
+      (function () {
+        try {
+          var known = { default: 1, hogwarts: 1, cyberpunk: 1, rdr2: 1, indiana: 1 };
+          var theme = localStorage.getItem('kraken_ui_theme') || 'default';
+          document.documentElement.setAttribute('data-theme', known[theme] ? theme : 'default');
+        } catch (e) {}
+        var ids = ['1593500','1245620','1091500','1174180','1086940','990080','2677660'];
+        ids.forEach(function (id) {
+          var img = new Image();
+          img.referrerPolicy = 'no-referrer';
+          img.src = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + id + '/library_hero.jpg';
+        });
+        setTimeout(function () {
+          if (window.__KRAKEN_BOOTED) return;
+          var msg = document.querySelector('#boot-splash .boot-msg');
+          if (msg) msg.textContent = 'Still loading…';
+        }, 8000);
+      })();
+    </script>
   </body>
 </html>

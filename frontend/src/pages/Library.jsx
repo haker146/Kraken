@@ -1,10 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Clock, RefreshCw, Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Search, RefreshCw, Loader2, AlertTriangle, Download } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
-import ContextMenu from '../components/ContextMenu';
-import GameSettingsModal from '../components/GameSettingsModal';
+import SteamImage from '../components/SteamImage';
+import { useCrackDB } from '../hooks/useCrackDB';
+import { gameNeedsDownload, installViaSteam } from '../lib/libraryActions';
 import './Library.css';
+
+function buildVsCrack(game, lookupGame) {
+  const rec = lookupGame(game.app_id);
+  const installed = String(game.buildid || '').trim();
+  const crack = String(rec?.required_build || '').trim();
+  if (installed && crack && installed === crack) {
+    return { tone: 'green', label: 'Build match', title: `Installed ${installed} matches crack ${crack}` };
+  }
+  if (installed && crack && installed !== crack) {
+    return { tone: 'red', label: 'Wrong build', title: `Installed ${installed} vs crack ${crack}` };
+  }
+  if (game.has_update) {
+    return { tone: 'yellow', label: 'Update', title: 'Newer Steam/manifest build available' };
+  }
+  if (!installed || !crack) {
+    return { tone: 'yellow', label: installed ? `Build ${installed}` : 'Build unknown', title: crack ? `Crack build ${crack}` : 'Installed or crack build is unknown' };
+  }
+  return { tone: 'yellow', label: 'Build unknown', title: 'Could not compare installed build vs crack' };
+}
 
 const STATUS_META = {
   cracked: { label: '⚡ Cracked', cls: 'cracked' },
@@ -17,13 +37,12 @@ const cover = (appId) =>
 
 export default function Library() {
   const [query, setQuery] = useState('');
-  const [contextMenu, setContextMenu] = useState(null);
-  const [settingsGame, setSettingsGame] = useState(null);
-  const [favorites, setFavorites] = useState(new Set());
-  const [games, setGames] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const games = useAppStore((s) => s.games);
+  const applyLibraryPayload = useAppStore((s) => s.applyLibraryPayload);
+  const [loading, setLoading] = useState(() => !(useAppStore.getState().games || []).length);
   const [error, setError] = useState(null);
-  const { setActiveGame, setActivePage } = useAppStore();
+  const { setActiveGame, setActivePage, setHubBackPage, openGameCtx, favorites } = useAppStore();
+  const { lookupGame } = useCrackDB({ prefetch: true });
 
   const loadLibrary = () => {
     setLoading(true);
@@ -38,8 +57,9 @@ export default function Library() {
     // Electron path
     if (window.KrakenAPI) {
       window.KrakenAPI.call('load_library').then(res => {
-        if (res?.ok) setGames(res.data || []);
-        else setError(res?.error || 'Failed to load library');
+        if (res?.ok) {
+          applyLibraryPayload(res.data || []);
+        } else setError(res?.error || 'Failed to load library');
         setLoading(false);
       }).catch(e => {
         setError(String(e));
@@ -67,23 +87,8 @@ export default function Library() {
       try {
         const evt = typeof json === 'string' ? JSON.parse(json) : json;
         if (evt.task === 'library_loaded') {
-          const rawGames = evt.games || [];
-          // Map backend fields to UI shape
-          const mapped = rawGames.map(g => ({
-            app_id:       String(g.app_id || g.appid || ''),
-            name:         g.name || `App ${g.app_id}`,
-            crack_status: g.crack_status || (g.cracked ? 'cracked' : 'clean'),
-            drm:          g.drm || 'Unknown',
-            crack_ver:    g.crack_ver || null,
-            crack_src:    g.crack_src || null,
-            crack_date:   g.crack_date || null,
-            playtime:     g.playtime || '—',
-            last_played:  g.last_played || '—',
-            size:         g.size || '—',
-            path:         g.path || '',
-            image_url:    g.image_url || null,
-          }));
-          setGames(mapped);
+          applyLibraryPayload(evt.games || []);
+          setError(null);
           setLoading(false);
         }
       } catch { /* ignore */ }
@@ -106,8 +111,15 @@ export default function Library() {
       }
     };
     init();
+    const timeout = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) setError('Library took too long to load. Try Refresh.');
+        return false;
+      });
+    }, 20000);
 
     return () => {
+      clearTimeout(timeout);
       if (connected && window.Bridge?.task_finished?.disconnect) {
         try { window.Bridge.task_finished.disconnect(handler); } catch { /* */ }
       }
@@ -118,13 +130,15 @@ export default function Library() {
     g.name.toLowerCase().includes(query.toLowerCase())
   );
 
-  const handleContextMenu = (e, game) => {
-    e.preventDefault();
-    setContextMenu({ x: e.clientX, y: e.clientY, game });
-  };
-
-  const handleRemoveLibrary = (game) => {
-    setGames(gs => gs.filter(g => g.app_id !== game.app_id));
+  const handlePlayGame = (game) => {
+    if (!game) return;
+    if (gameNeedsDownload(game)) {
+      installViaSteam(game.app_id);
+      return;
+    }
+    if (window.Bridge?.launch_game) {
+      window.Bridge.launch_game(String(game.app_id));
+    }
   };
 
   if (loading) {
@@ -147,11 +161,16 @@ export default function Library() {
   }
 
   return (
-    <div className="library-page" onClick={() => setContextMenu(null)}>
+    <div className="library-page">
       <div className="library-header">
         <div>
           <h2 className="library-title">Your Library</h2>
-          <p className="library-subtitle">{filtered.length} game{filtered.length !== 1 ? 's' : ''} installed</p>
+          <p className="library-subtitle">
+            {filtered.length} game{filtered.length !== 1 ? 's' : ''}
+            {games.filter(gameNeedsDownload).length
+              ? ` · ${games.filter(gameNeedsDownload).length} waiting to download`
+              : ' in library'}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div className="library-search-wrap">
@@ -169,6 +188,17 @@ export default function Library() {
         </div>
       </div>
 
+      {games.some((g) => g.has_update) && (
+        <div className="lib-update-banner">
+          <AlertTriangle size={14} />
+          <span>
+            {games.filter((g) => g.has_update).length} game
+            {games.filter((g) => g.has_update).length === 1 ? '' : 's'} have a newer Steam/manifest build.
+            Open a title to pin the crack build or grab the new manifest.
+          </span>
+        </div>
+      )}
+
       {games.length === 0 ? (
         <div className="library-empty">
           <span style={{ fontSize: 40 }}>📦</span>
@@ -181,76 +211,52 @@ export default function Library() {
         <div className="library-grid">
           {filtered.map((game, i) => {
             const st = STATUS_META[game.crack_status] || STATUS_META.clean;
-            const isFav = favorites.has(game.app_id);
-            const imgSrc = game.image_url || cover(game.app_id);
+            const isFav = (favorites || []).includes(String(game.app_id));
+            const coverSrc = game.cover_url || cover(game.app_id);
+            const match = buildVsCrack(game, lookupGame);
+            const needsDl = gameNeedsDownload(game);
 
             return (
               <motion.div
                 key={game.app_id}
-                className={`lib-card ${isFav ? 'favorited' : ''}`}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: i * 0.03, duration: 0.2 }}
-                onClick={() => { setActiveGame({ ...game, cover_url: imgSrc }); setActivePage('game-hub'); }}
-                onContextMenu={(e) => handleContextMenu(e, game)}
+                className={`lib-card ${isFav ? 'favorited' : ''} build-${match.tone} ${needsDl ? 'needs-download' : ''}`}
+                title={game.name}
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(i, 14) * 0.035, duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+                onClick={() => { setHubBackPage('library'); setActiveGame({ ...game, cover_url: coverSrc, image_url: game.image_url }); setActivePage('game-hub'); }}
+                onContextMenu={(e) => openGameCtx(e, game)}
               >
                 <div className="lib-card-cover">
-                  <img
-                    src={imgSrc}
+                  <SteamImage
+                    appId={game.app_id}
+                    src={coverSrc}
                     alt={game.name}
-                    loading="lazy"
-                    onError={e => { e.target.src = cover(game.app_id); }}
+                    kind="cover"
                   />
                   <div className="lib-card-hover">
-                    <button className="lib-play-btn" onClick={e => e.stopPropagation()}>▶ Play</button>
+                    <button
+                      className={`lib-play-btn ${needsDl ? 'is-download' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); handlePlayGame(game); }}
+                    >
+                      {needsDl ? <><Download size={13} /> Download</> : '▶ Play'}
+                    </button>
                   </div>
                 </div>
 
                 {isFav && <span className="lib-fav-star">★</span>}
-                <span className={`lib-status-badge ${st.cls}`}>{st.label}</span>
-
-                <div className="lib-card-info">
-                  <p className="lib-card-name">{game.name}</p>
-                  <div className="lib-card-meta">
-                    {game.playtime !== '—' && (
-                      <span><Clock size={10} /> {game.playtime}</span>
-                    )}
-                    {game.size !== '—' && <span>{game.size}</span>}
-                  </div>
-                </div>
+                <span className={`lib-status-badge ${needsDl ? 'queued' : st.cls}`}>
+                  {needsDl ? 'Not downloaded' : st.label}
+                </span>
+                <span className={`lib-build-badge ${match.tone}`} title={match.title}>
+                  {match.label}
+                </span>
               </motion.div>
             );
           })}
         </div>
       )}
 
-      <AnimatePresence>
-        {contextMenu && (
-          <ContextMenu
-            x={contextMenu.x}
-            y={contextMenu.y}
-            game={contextMenu.game}
-            onClose={() => setContextMenu(null)}
-            onSettings={() => setSettingsGame(contextMenu.game)}
-            onFavorite={() => setFavorites(f => {
-              const next = new Set(f);
-              next.has(contextMenu.game.app_id) ? next.delete(contextMenu.game.app_id) : next.add(contextMenu.game.app_id);
-              return next;
-            })}
-            onRemoveLibrary={() => handleRemoveLibrary(contextMenu.game)}
-            onRemoveDisk={() => handleRemoveLibrary(contextMenu.game)}
-          />
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {settingsGame && (
-          <GameSettingsModal
-            game={settingsGame}
-            onClose={() => setSettingsGame(null)}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }

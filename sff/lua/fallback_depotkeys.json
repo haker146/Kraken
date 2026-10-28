@@ -31653,37 +31653,43 @@
     "key": "d42a00787e5f23342db77a0ed3388f7c0ac433f7d3b14c4b7a132ce8f7574c14",
     "name": "Depot 33251",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33252": {
     "key": "945563c7f80ddd9404e38ad2071239f34b73fffa2d6c35378b4158dab7d0d67a",
     "name": "Depot 33252",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33253": {
     "key": "2c12f58a050c5ac5992e8d5819dfe6e5ccaa4c9aa768b604f37fed6793407558",
     "name": "Depot 33253",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33254": {
     "key": "d44ceabc2276edc0a4ffd807b5f2b7f3acb370f13816a6eb817434aed90368bc",
     "name": "Depot 33254",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33255": {
     "key": "2d119b48bb2f87cfc7853ddf477723bcdc8ee4b98803d50e4ad41de37a8d75d9",
     "name": "Depot 33255",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33256": {
     "key": "8360eb33be312763902066acba8697759e42d82bbbcf6f052007b669eb115e72",
     "name": "Depot 33256",
     "kind": "depot",
-    "parent_appid": "33250"
+    "parent_appid": "33250",
+    "parent_name": "Anno 1404: Venice"
   },
   "33261": {
     "key": "f683625306e5e8789127c63b484e340412a5c9eb610a66f85a25da8d45adfd1e",
@@ -151267,7 +151273,7 @@
     "parent_name": "The Legend of Korra™"
   },
   "281692": {
-    "key": "57e4c6730061e507437572114300e10617005305114602054426e40300412506",
+    "key": "",
     "name": "The Legend of Korra™ Depot 281692",
     "kind": "depot",
     "parent_appid": "281690",
@@ -221549,7 +221555,7 @@
     "parent_name": "VEGA Conflict"
   },
   "339610": {
-    "key": "",
+    "key": "6decfbe8a4b37e980c40145c2f7ff0c23780dda20fa934f0bd4b5b09e40d07c6",
     "name": "Freestyle 2: Street Basketball",
     "kind": "game"
   },
@@ -255232,7 +255238,7 @@
     "parent_name": "OlliOlli2: Welcome to Olliwood"
   },
   "365670": {
-    "key": "",
+    "key": "1c0c08c918b4faaee80c539afe1ce13f22d01f127e354640c30570faf4281b1b",
     "name": "Blender",
     "kind": "software"
   },
@@ -335437,7 +335443,7 @@
     "parent_name": "Kim"
   },
   "437000": {
-    "key": "",
+    "key": "526eff22f1a698cb2a7209cfe2a0a9f791702a0e663e0783bfc9df699a8e6002",
     "name": "GUILTY GEAR 2 -OVERTURE-",
     "kind": "game"
   },
@@ -486753,7 +486759,7 @@
     "kind": "unknown"
   },
   "605740": {
-    "key": "",
+    "key": "82dbeed64c3b908db1fb45fc5cda0c15f4e12e554e0a45dd393727c7ad978b35",
     "name": "Flashing Lights - Police, Firefighting, Emergency Services (EMS) Simulator",
     "kind": "game"
   },
@@ -965211,7 +965217,7 @@
     "parent_name": "Titanfall® 2"
   },
   "1237980": {
-    "key": "",
+    "key": "6dfd400a7837c49b5c0ef7359c20c939e0efce6861b82e120cc1be09a4039f77",
     "name": "STAR WARS™ Battlefront",
     "kind": "game"
   },
@@ -1031157,7 +1031163,7 @@
     "parent_name": "Aristocunts"
   },
   "1314632": {
-    "key": "",
+    "key": "ca8d68907b168be44e19159f3eeb8fb374b788b58453550b738546aa937b7194",
     "name": "Aristocunts macos depot",
     "kind": "depot",
     "parent_appid": "1314630",
@@ -1056664,7 +1056670,7 @@
     "parent_name": "RPG Maker MZ"
   },
   "1350910": {
-    "key": "757df883b3c9e8556c2df2f1a4a0d3c403e22cfff3b9c899a23e9c11bc56a384",
+    "key": "",
     "name": "RPG Maker MZ - Add-on Vol.2: RM2K Hero Character Pack",
     "kind": "dlc",
     "parent_appid": "1096900",
@@ -1134880,7 +1134886,7 @@
     "parent_name": "Arid Demo"
   },
   "1463741": {
-    "key": "73d09cfe5a697e2e5bf2a2591259e00c715e9dc3376d4a71ff7e915483be399d",
+    "key": "",
     "name": "HTML 2 APK Compiler windows english depot",
     "kind": "depot",
     "parent_appid": "1463740",
@@ -1136624,7 +1136630,7 @@
     "parent_name": "Jennifer Wilde: Unlikely Revolutionaries"
   },
   "1466390": {
-    "key": "",
+    "key": "4b0f93c2c3df8bf5d334fc12696ac2ca9abc384059714bbd894e352ecc801983",
     "name": "Kathy Rain 2: Soothsayer",
     "kind": "game"
   },
@@ -1136634,6 +1136640,16 @@
     "kind": "depot",
     "parent_appid": "1466390",
     "parent_name": "Kathy Rain 2: Soothsayer"
+  },
+  "1466392": {
+    "key": "e1c4a7f3c4d3dc006fbd2491d596a8d8ee1d5abead45a059b5e45dbb83b6686e",
+    "name": "Depot 1466392",
+    "kind": "depot"
+  },
+  "1466393": {
+    "key": "3f1663200eefccb686b6833e90e455f4dd01cde4143f3a39c281b0f8d457c96b",
+    "name": "Depot 1466393",
+    "kind": "depot"
   },
   "1466400": {
     "key": "",
@@ -1491270,7 +1491286,7 @@
     "parent_name": "Aristocunts II Re:ERECTION"
   },
   "2017702": {
-    "key": "",
+    "key": "9af9e8db345e6e490ccc6899bd86e49ac2dead5cae6c9fe8a41b6b4402abc195",
     "name": "Aristocunts II Re:ERECTION macos depot",
     "kind": "depot",
     "parent_appid": "2017700",
@@ -1503854,7 +1503870,7 @@
     "parent_name": "长明火计划 原声音乐集 Project: Eternal Flame Soundtrack"
   },
   "2060102": {
-    "key": "0a5454b056d12ec3b0bc609c19876a79926ad502fbb1a91eed1e242d94af3b6a",
+    "key": "",
     "name": "长明火计划 原声音乐集 Project: Eternal Flame Soundtrack Depot 2060102",
     "kind": "depot",
     "parent_appid": "2060100",
@@ -1598328,6 +1598344,11 @@
     "name": "",
     "kind": "unknown"
   },
+  "2212910": {
+    "key": "fcfc385b58b73c14ec07fb290c97205b5152eac9760b4d1ea42f416824d9e24b",
+    "name": "Expeditions: Samurai",
+    "kind": "game"
+  },
   "2212911": {
     "key": "b79f8ae9ee060e4cff9d8be9dc937db5626ff9f3a160734ad0934668f4ebb269",
     "name": "Depot 2212911",
@@ -1659389,14 +1659410,14 @@
     "parent_name": "The Executive - Movie Industry Tycoon"
   },
   "2315432": {
-    "key": "",
+    "key": "636c540d84ff59d5885528779ece0a35262f5e60b1867d2b59df99c4e5bc3831",
     "name": "The Executive - Movie Industry Tycoon macos depot",
     "kind": "depot",
     "parent_appid": "2315430",
     "parent_name": "The Executive - Movie Industry Tycoon"
   },
   "2315433": {
-    "key": "",
+    "key": "b98480e8c550748c084e9df9edbd4f174a3bb33601f559a722fc22e9010b0446",
     "name": "The Executive - Movie Industry Tycoon linux depot",
     "kind": "depot",
     "parent_appid": "2315430",
@@ -1850592,7 +1850613,7 @@
     "parent_name": "Gym Nights Demo"
   },
   "2676180": {
-    "key": "",
+    "key": "776f19c30b846b216ae6e1215aeac9594c4a497eff379ca8fe7c6295c5c1eb99",
     "name": "Fog of War: Book One",
     "kind": "game"
   },
@@ -2123717,6 +2123738,11 @@
     "name": "",
     "kind": "unknown"
   },
+  "3279780": {
+    "key": "77b92c8c87a10e0c7b4991fc3b6d4ae51d61abc1f000e9b892868c570ccaf3f9",
+    "name": "Horizon Walker",
+    "kind": "game"
+  },
   "3279781": {
     "key": "5d0ff26265bc8400969a8f5dea7059b368663ce774f578849be1fcfc092836ec",
     "name": "Horizon Walker windows depot",
@@ -2252970,6 +2252996,21 @@
     "parent_appid": "400750",
     "parent_name": "Call to Arms - Gates of Hell: Ostfront"
   },
+  "3691430": {
+    "key": "0fb5c9faaa3bc4e76b8125f3a6cd2859f0b41e7a2acdf363fc6e05a48f7572bc",
+    "name": "Ritus Exorcismus",
+    "kind": "game"
+  },
+  "3691432": {
+    "key": "b9828b88783eaae4ca1aef5f30cfb6cffac487096a9045f4c7855cb88787409e",
+    "name": "Depot 3691432",
+    "kind": "depot"
+  },
+  "3691433": {
+    "key": "6704f5e75d55b4760f5f93e42a2c5d8ca71c71da887ed3a823432b586ac7b8ff",
+    "name": "Depot 3691433",
+    "kind": "depot"
+  },
   "3691470": {
     "key": "",
     "name": "",
@@ -2283442,14 +2283483,14 @@
     "parent_name": "Dominated by Yandere Goth Girlfriend 3: On the Beach"
   },
   "3841011": {
-    "key": "bb2d716ae4af9f55d98721d6511cf0e70a48d9d1fcb90beb547a3e062c8c9d12",
+    "key": "",
     "name": "Depot 3841011",
     "kind": "depot",
     "parent_appid": "3841010",
     "parent_name": "Niramare Quest: Saving a World That Loves Hating Me"
   },
   "3841012": {
-    "key": "bb2d716ae4af9f55d98721d6511cf0e70a48d9d1fcb90beb547a3e062c8c9d12",
+    "key": "",
     "name": "Schinese",
     "kind": "depot",
     "parent_appid": "3841010"
@@ -2329251,7 +2329292,7 @@
     "kind": "game"
   },
   "4352440": {
-    "key": "907f06c4ef85efe46f7525e1d5c3ac58d890dec642b8471d94da4ac4b99f8547",
+    "key": "70db506f113d788bb48aa27187fbc4114f4cbc70d2b5ed531cc98ea5a017d0bd",
     "name": "Depot 4352440",
     "kind": "depot"
   },
@@ -2337098,6 +2337139,27 @@
     "parent_appid": "2939040",
     "parent_name": "Terra Invicta"
   },
+  "4713811": {
+    "key": "9e5da69030c141279841c3b178311c52329ad7aa9d3f64a7c87ee0854b8a6e95",
+    "name": "Depot 4713811",
+    "kind": "depot",
+    "parent_appid": "4713810",
+    "parent_name": "イライザの秘薬"
+  },
+  "4713812": {
+    "key": "75887c9ccf9999e0d8f698675d636500f2436223a01fce0e09e847edd0ad3c85",
+    "name": "Depot 4713812",
+    "kind": "depot",
+    "parent_appid": "4713810",
+    "parent_name": "イライザの秘薬"
+  },
+  "4713813": {
+    "key": "6c336a772c11794faeef97328ed0e7c676ae798c55b2e34dbc8b047b00e75832",
+    "name": "Depot 4713813",
+    "kind": "depot",
+    "parent_appid": "4713810",
+    "parent_name": "イライザの秘薬"
+  },
   "4714101": {
     "key": "e18055fb221839b55a1abe28d98c6b548e98a8c85d7cf1d0115401065c0e232e",
     "name": "Depot 4714101",
@@ -2339299,7 +2339361,7 @@
     "kind": "game"
   },
   "4888620": {
-    "key": "be09423f1d8e9be1ed4efcb7f62a61f087db81302703b8e2bc25a369ca07db61",
+    "key": "",
     "name": "Depot 4888620",
     "kind": "depot",
     "parent_appid": "2294730"

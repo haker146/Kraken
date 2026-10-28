@@ -26,7 +26,7 @@ import sys
 
 from pathlib import Path
 
-
+from pathvalidate import sanitize_filename  # re-export for callers expecting it in sff.core.utils
 import vdf  # type: ignore
 
 

@@ -56,12 +56,24 @@ from sff.core.structs import (  # type: ignore
     ManifestGetModes,
     Settings,
 )
-from sff.zip import read_nth_file_from_zip_bytes, extract_manifests_from_zip_bytes
+def _notify_manifest(title: str, msg: str, is_error: bool = False):
+    try:
+        from sff.ui.notifications import get_notification_service
+        ns = get_notification_service()
+        if is_error:
+            ns.show_error(title, msg)
+        else:
+            ns.show_info(title, msg)
+    except Exception:
+        pass
+
 
 _GITHUB_MANIFEST_REPOS = (
     ("qwe213312/k25FCdfEOoEJ42S6", "qwe213312"),
     ("mejikuhibiniu1/k25FCdfEOoEJ42S6", "mejikuhibiniu1"),
     ("Sainan/k25FCdfEOoEJ42S6", "Sainan"),
+    ("k25FCdfEOoEJ42S6/ManifestHub", "ManifestHub-Raw"),
+    ("m-manifests/manifests", "M-Manifests"),
 )
 from sff.steam_tools_compat import sync_manifest_to_config_depotcache
 from typing import cast
@@ -91,11 +103,31 @@ class LocalManifestStrategy(IManifestStrategy):
         return manifest_id
 
 
+
+def _stage_manifest_backup(source: Path):
+    try:
+        staging = manifests_staging_dir()
+        dest = staging / source.name
+        if dest.resolve() != source.resolve():
+            shutil.copy2(source, dest)
+    except Exception as e:
+        logger.debug("Failed staging manifest backup: %s", e)
+
+
+def _hubcap_configured() -> bool:
+    try:
+        if get_setting(Settings.HUBCAP_DISABLED):
+            return False
+        return bool(str(get_setting(Settings.HUBCAP_KEY) or "").strip())
+    except Exception:
+        return False
+
+
 class ManifestDownloader:
     def __init__(self, provider, steam_path, use_hubcap = False):
         self.steam_path = steam_path
         self.provider = provider
-        self.use_hubcap = use_hubcap
+        self.use_hubcap = bool(use_hubcap) or _hubcap_configured()
 
     def _manifest_search_dirs(self):
         dirs = [
@@ -157,6 +189,7 @@ class ManifestDownloader:
         if source.resolve() != dest.resolve():
             shutil.copy2(source, dest)
         sync_manifest_to_config_depotcache(self.steam_path, dest)
+        _stage_manifest_backup(dest)
         return dest
 
     def _cleanup_live_stale_manifests(self, manifest_ids):
@@ -225,6 +258,7 @@ class ManifestDownloader:
                 dest.write_bytes(raw)
         if dest.exists():
             sync_manifest_to_config_depotcache(self.steam_path, dest)
+            _stage_manifest_backup(dest)
             return dest
         return None
 
@@ -330,6 +364,7 @@ class ManifestDownloader:
         # Limit: 1500/day. Returns raw manifest bytes (NOT zip-wrapped).
         api_key = get_setting(Settings.HUBCAP_KEY)
         if not api_key:
+            logger.debug("Hubcap on-demand skipped for depot %s: no API key", depot_id)
             return None
         url = (
             f"https://hubcapmanifest.com/api/v1/generate/manifest"
@@ -348,11 +383,14 @@ class ManifestDownloader:
                     + f"[OK] Hubcap on-demand: got manifest for depot {depot_id}"
                     + Style.RESET_ALL
                 )
+                _notify_manifest("Hubcap Manifest", f"Pobrano manifest dla depotu {depot_id} z bazy Hubcap!", is_error=False)
                 return resp.content
             if resp.status_code == 401:
                 logger.debug("Hubcap on-demand: invalid or missing API key")
+                _notify_manifest("Hubcap Manifest", f"Klucz Hubcap wygasł (401). Przełączam na alternatywne bazy manifestów...", is_error=True)
             elif resp.status_code == 429:
                 print(Fore.YELLOW + "Hubcap: daily limit reached (1500/day)." + Style.RESET_ALL)
+                _notify_manifest("Hubcap Manifest", "Limit Hubcap (1500/dzień) wyczerpany. Sprawdzam inne źródła...", is_error=True)
             elif resp.status_code == 404:
                 logger.debug(
                     f"Hubcap: depot {depot_id} manifest {manifest_id} not found"
@@ -363,6 +401,7 @@ class ManifestDownloader:
                 )
         except Exception as e:
             logger.debug(f"Hubcap request failed: {e}")
+            _notify_manifest("Hubcap Manifest", f"Błąd połączenia z Hubcap: {e}. Sprawdzam alternatywne bazy...", is_error=True)
         return None
 
     def _try_github_manifest_direct(
@@ -452,39 +491,49 @@ class ManifestDownloader:
             (f"https://manifest.steam.run/api/manifest/{manifest_id}", "steam.run"),
             (f"http://gmrc.wudrm.com/manifest/{manifest_id}", "wudrm"),
         )
+        import time as _time
         for url, label in _MIRROR_URLS:
-            try:
-                resp = httpx.get(
-                    url,
-                    headers=MANIFEST_REQUEST_CODE_HEADERS,
-                    timeout=12,
-                    follow_redirects=True,
-                )
-                if resp.status_code == 200:
-                    req_code = parse_manifest_request_code(resp.text)
-                else:
-                    req_code = None
-                if req_code is not None:
-                    logger.debug(f"Mirror {label} returned request code for manifest {manifest_id}")
-                    cdn_url = f"http://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
-                    result = get_request_raw(cdn_url)
-                    if result is None:
-                        cdn_url_https = f"https://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
-                        result = get_request_raw(cdn_url_https)
-                    if result is not None:
-                        logger.debug(f"Mirror {label} download succeeded for depot {depot_id}")
-                        return result
-                logger.debug(
-                    f"Mirror {label} had no usable request code "
-                    f"(HTTP {getattr(resp, 'status_code', 'unknown')})"
-                )
-            except Exception as e:
-                logger.debug(f"Mirror {label} request failed: {e}")
+            for attempt in range(2):
+                try:
+                    resp = httpx.get(
+                        url,
+                        headers=MANIFEST_REQUEST_CODE_HEADERS,
+                        timeout=12,
+                        follow_redirects=True,
+                    )
+                    if resp.status_code == 200:
+                        req_code = parse_manifest_request_code(resp.text)
+                    elif resp.status_code in (429, 500, 502, 503, 504) and attempt == 0:
+                        _time.sleep(1.0)
+                        continue
+                    else:
+                        req_code = None
+                    if req_code is not None:
+                        logger.debug(f"Mirror {label} returned request code for manifest {manifest_id}")
+                        cdn_url = f"http://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
+                        result = get_request_raw(cdn_url)
+                        if result is None:
+                            cdn_url_https = f"https://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
+                            result = get_request_raw(cdn_url_https)
+                        if result is not None:
+                            logger.debug(f"Mirror {label} download succeeded for depot {depot_id}")
+                            return result
+                    logger.debug(
+                        f"Mirror {label} had no usable request code "
+                        f"(HTTP {getattr(resp, 'status_code', 'unknown')})"
+                    )
+                    break
+                except Exception as e:
+                    logger.debug(f"Mirror {label} request failed: {e}")
+                    if attempt == 0:
+                        _time.sleep(0.5)
+                        continue
+                    break
         return None
 
-    def _try_manifesthub(self, depot_id, manifest_id):
-        # Hits the ManifestHub API; key is auto-fetched and renewed as needed.
-        api_key = get_manifesthub_api_key()
+    def _try_manifesthub(self, depot_id, manifest_id, prompt_if_missing=False):
+        # Hits the ManifestHub API; key is auto-fetched if saved, but never prompts in background
+        api_key = get_manifesthub_api_key(prompt_if_missing=prompt_if_missing)
         if not api_key:
             return None
         url = (
@@ -522,51 +571,63 @@ class ManifestDownloader:
         cdn_client = None,
         app_id = "",
     ):
-        if self.use_hubcap:
-            # Hubcap path: Hubcap → ManifestHub API → CDN (interactive)
-            hubcap_result = self._try_hubcap_generate(depot_id, manifest_id)
-            if hubcap_result is not None:
-                return hubcap_result
-            mh_result = self._try_manifesthub(depot_id, manifest_id)
-            if mh_result is not None:
-                return mh_result
-            # CDN is dead, skip resolve_gmrc + CDN download.
-            # ManifestHub already tried above, fall through to GitHub.
-            logger.debug(f"Hubcap path for depot {depot_id}: all sources failed")
-            return None
-        # oureveryday path ─────────────────────────────────────────────────────
-        # Step 1: Try the 3 GMRC mirrors
-        #          directly. Each returns a request code; we pull the manifest
-        #          from Steam CDN with it. HTTPS before HTTP.
-        # Step 2: Fall back to the 3 GitHub raw mirror repos.
-        # Step 3: ManifestHub API (auto-prompts for key if none cached).
-        # Step 4: Encrypted GMRC endpoint + CDN (last resort).
-        # Step 1: Hit the 3 mirror endpoints
-        #          to get a request code and download from steampipe CDN.
-        mirror_result = self._try_mirror_endpoints(depot_id, manifest_id)
-        if mirror_result is not None:
-            return mirror_result
-        # Step 2: Try all 3 GitHub raw manifest mirrors in sequence.
-        #          Each hosts the same k25FCdfEOoEJ42S6 manifest set.
-        try:
-            gh_result = self._try_github_manifest_bytes(app_id, depot_id, manifest_id)
-            if gh_result is not None:
-                return gh_result
-        except Exception as e:
-            logger.debug("oureveryday github fallback failed: %s", e)
-        # Step 3: Try ManifestHub API. Returns None silently if no key
-        #          is set so we fall through to the last step.
-        mh_result = self._try_manifesthub(depot_id, manifest_id)
-        if mh_result is not None:
-            return mh_result
-        # Step 4: Last resort — encrypted GMRC endpoint for a request
-        #          code, then download from steampipe CDN.
-        req_code = asyncio.run(get_gmrc(manifest_id, silent=True))
-        if req_code is not None:
-            pipe_url = f"http://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
-            result = get_request_raw(pipe_url)
-            if result is not None:
-                return result
+        def _usable(data):
+            return isinstance(data, (bytes, bytearray)) and len(data) >= 64
+
+        from sff.manifest.sources import enabled_source_ids, format_source_chain
+
+        order = enabled_source_ids()
+        logger.info(
+            "Manifest depot %s gid %s: %s",
+            depot_id, manifest_id, format_source_chain(order),
+        )
+        for source_id in order:
+            if source_id == "hubcap":
+                if not (self.use_hubcap or _hubcap_configured()):
+                    logger.debug("Manifest depot %s: Hubcap skipped (no key)", depot_id)
+                    continue
+                hubcap_result = self._try_hubcap_generate(depot_id, manifest_id)
+                if _usable(hubcap_result):
+                    logger.info("Manifest depot %s: sourced from Hubcap", depot_id)
+                    return hubcap_result
+                continue
+            if source_id == "gmrc":
+                mirror_result = self._try_mirror_endpoints(depot_id, manifest_id)
+                if _usable(mirror_result):
+                    logger.info("Manifest depot %s: sourced from GMRC mirror", depot_id)
+                    _notify_manifest("GMRC Mirror", f"Pobrano manifest dla depotu {depot_id} z mirrora CDN!", is_error=False)
+                    return mirror_result
+                continue
+            if source_id == "github":
+                try:
+                    gh_result = self._try_github_manifest_bytes(app_id, depot_id, manifest_id)
+                    if _usable(gh_result):
+                        logger.info("Manifest depot %s: sourced from GitHub", depot_id)
+                        _notify_manifest("GitHub Mirror", f"Pobrano manifest dla depotu {depot_id} z repozytoriów GitHub!", is_error=False)
+                        return gh_result
+                except Exception as e:
+                    logger.debug("github fallback failed: %s", e)
+                continue
+            if source_id == "manifesthub":
+                mh_result = self._try_manifesthub(depot_id, manifest_id)
+                if _usable(mh_result):
+                    logger.info("Manifest depot %s: sourced from ManifestHub", depot_id)
+                    _notify_manifest("ManifestHub", f"Pobrano manifest dla depotu {depot_id} z ManifestHub!", is_error=False)
+                    return mh_result
+                continue
+            if source_id == "steam_cdn":
+                try:
+                    req_code = asyncio.run(get_gmrc(manifest_id, silent=True))
+                    if req_code is not None:
+                        pipe_url = f"http://steampipe.akamaized.net/depot/{depot_id}/manifest/{manifest_id}/5/{req_code}"
+                        result = get_request_raw(pipe_url)
+                        if _usable(result):
+                            logger.info("Manifest depot %s: sourced from Steam CDN (GMRC code)", depot_id)
+                            return result
+                except Exception as e:
+                    logger.debug("get_gmrc fallback failed for depot %s: %s", depot_id, e)
+                continue
+        logger.warning("Manifest depot %s gid %s: all sources failed", depot_id, manifest_id)
         return None
 
     def resolve_gmrc(self, manifest_id):
@@ -755,6 +816,7 @@ class ManifestDownloader:
                             # ManifestHub (API or GitHub) returns raw bytes, not ZIP-wrapped
                             final_manifest_loc.write_bytes(manifest)
                     sync_manifest_to_config_depotcache(self.steam_path, final_manifest_loc)
+                    _stage_manifest_backup(final_manifest_loc)
                     return (True, depot_id, manifest_id, final_manifest_loc, "Downloaded")
                 # Step 5 (interactive CDN) cannot run in parallel mode; report failure
                 return (False, depot_id, manifest_id, None, "Download failed")

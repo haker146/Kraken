@@ -105,46 +105,62 @@ class ACFWriter:
                     f"Warning: could not determine install directory name. "
                     f"Using '{installdir}' as fallback — rename the folder manually if needed."
                 )
-            print(f"installdir will be set to: {installdir}")
+            # Check if game files already exist on disk in the library
+            common_dir = self.steam_lib_path / "steamapps" / "common" / installdir
+            files_exist = common_dir.is_dir() and any(common_dir.iterdir())
+            # 4 = fully installed. 1 = uninstalled (listed in Steam, no auto-download).
+            # 1026 (UpdateRequired + UpdateStarted) made Steam open the download UI by itself.
+            state_flags = "4" if files_exist else "1"
+            size_on_disk_val = str(size_on_disk) if files_exist else "0"
+            bytes_downloaded = str(size_on_disk) if files_exist else "0"
+            build_id_val = str(buildid) if files_exist else "0"
+
             app_state: dict = {
                 "appid": app_id_str,
                 "universe": "1",
                 "name": app_name,
-                "StateFlags": "4",
+                "StateFlags": state_flags,
                 "installdir": installdir,
                 "LastUpdated": str(int(time.time())),
-                "SizeOnDisk": str(size_on_disk),
+                "SizeOnDisk": size_on_disk_val,
                 "StagingSize": "0",
-                "buildid": str(buildid),
+                "buildid": build_id_val,
                 "UpdateResult": "0",
                 "BytesToDownload": str(size_on_disk),
-                "BytesDownloaded": str(size_on_disk),
+                "BytesDownloaded": bytes_downloaded,
                 "BytesToStage": "0",
                 "BytesStaged": "0",
                 "TargetBuildID": str(buildid),
-                "AutoUpdateBehavior": "0",
+                "AutoUpdateBehavior": "0" if files_exist else "1",
                 "AllowOtherDownloadsWhileRunning": "0",
                 "ScheduledAutoUpdate": "0",
                 "DownloadType": "1",
             }
             if manifest_map:
-                depot_list = list(manifest_map.items())
-                installed = {}
-                for i, (depot_id, manifest_id) in enumerate(depot_list):
-                    depot_size = str(size_on_disk) if i == 0 and size_on_disk else "0"
-                    installed[str(depot_id)] = {"manifest": str(manifest_id), "size": depot_size}
-                app_state["InstalledDepots"] = installed
-                print(
-                    f"InstalledDepots set for {len(manifest_map)} depot(s) -> "
-                    + ", ".join(
-                        f"{d}:{m}" for d, m in list(manifest_map.items())[:3]
+                if files_exist:
+                    depot_list = list(manifest_map.items())
+                    installed = {}
+                    for i, (depot_id, manifest_id) in enumerate(depot_list):
+                        depot_size = str(size_on_disk) if i == 0 and size_on_disk else "0"
+                        installed[str(depot_id)] = {"manifest": str(manifest_id), "size": depot_size}
+                    app_state["InstalledDepots"] = installed
+                    print(
+                        f"InstalledDepots set for {len(manifest_map)} depot(s) -> "
+                        + ", ".join(
+                            f"{d}:{m}" for d, m in list(manifest_map.items())[:3]
+                        )
+                        + ("..." if len(manifest_map) > 3 else "")
                     )
-                    + ("..." if len(manifest_map) > 3 else "")
-                )
+                else:
+                    app_state["InstalledDepots"] = {}
+                    print(
+                        f"New installation: InstalledDepots left empty, "
+                        f"StateFlags={state_flags} (listed only, no auto-download)"
+                    )
             acf_contents = {"AppState": app_state}
             vdf_dump(acf_file, acf_contents)
             try:
-                if sys.platform != "win32":
+                if sys.platform != "win32" and files_exist:
                     os.chmod(acf_file, 0o444)
             except OSError:
                 pass
@@ -176,29 +192,36 @@ class ACFWriter:
         print(f"installdir will be set to: {installdir}")
         acf_file = self.steam_lib_path / f"steamapps/appmanifest_{lua.app_id}.acf"
         acf_file.parent.mkdir(parents=True, exist_ok=True)
+        common_dir = self.steam_lib_path / "steamapps" / "common" / installdir
+        files_exist = common_dir.is_dir() and any(common_dir.iterdir())
+        state_flags = "4" if files_exist else "1"
+        size_on_disk_val = str(size_on_disk) if files_exist else "0"
+        bytes_downloaded = str(size_on_disk) if files_exist else "0"
+        build_id_val = str(buildid) if files_exist else "0"
+
         app_state: dict = {
             "appid": app_id_str,
             "universe": "1",
             "name": app_name,
-            "StateFlags": "4",
+            "StateFlags": state_flags,
             "installdir": installdir,
             "LastUpdated": str(int(time.time())),
-            "SizeOnDisk": str(size_on_disk),
+            "SizeOnDisk": size_on_disk_val,
             "StagingSize": "0",
-            "buildid": str(buildid),
+            "buildid": build_id_val,
             "UpdateResult": "0",
             "BytesToDownload": str(size_on_disk),
-            "BytesDownloaded": str(size_on_disk),
+            "BytesDownloaded": bytes_downloaded,
             "BytesToStage": "0",
             "BytesStaged": "0",
             "TargetBuildID": str(buildid),
-            "AutoUpdateBehavior": "0",
+            "AutoUpdateBehavior": "0" if files_exist else "1",
             "AllowOtherDownloadsWhileRunning": "0",
             "ScheduledAutoUpdate": "0",
             "DownloadType": "1",
         }
         if manifest_map:
-            if empty_depots:
+            if empty_depots or not files_exist:
                 app_state["InstalledDepots"] = {}
             else:
                 depot_list = list(manifest_map.items())
@@ -217,7 +240,8 @@ class ACFWriter:
         acf_contents = {"AppState": app_state}
         vdf_dump(acf_file, acf_contents)
         try:
-            os.chmod(acf_file, 0o444)
+            if files_exist:
+                os.chmod(acf_file, 0o444)
         except OSError:
             pass
         print(f"Wrote .acf file to {acf_file}")

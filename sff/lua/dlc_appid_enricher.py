@@ -61,26 +61,8 @@ def _existing_addappid_ids(text: str) -> set:
 
 
 def keep_parent_addappids(text: str, parent_id) -> str:
-    """Keep addappid lines for the parent game; drop extra DLC app IDs.
-
-    Depot keys, setManifestid, and other lua remain untouched. DLC is
-    added later when the user activates selected IDs in the store UI.
-    """
-    try:
-        parent = int(parent_id)
-    except (TypeError, ValueError):
-        return text or ""
-    lines = []
-    for line in str(text or "").splitlines(keepends=True):
-        match = re.match(r"^\s*addappid\s*\(\s*(\d+)", line, re.IGNORECASE)
-        if match:
-            try:
-                if int(match.group(1)) != parent:
-                    continue
-            except (TypeError, ValueError):
-                pass
-        lines.append(line)
-    return "".join(lines)
+    """Keep all parent app IDs, depot keys, manifests, and game entries intact."""
+    return text or ""
 
 
 def _compute_depotless_set(provider: SteamInfoProvider, parent_appid: int) -> set:

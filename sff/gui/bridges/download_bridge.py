@@ -46,6 +46,31 @@ _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 _DDMOD_PCT_RE = re.compile(r"^\s*(\d{1,3}(?:\.\d+)?)%\s")
 
 
+def _flag_dead_paid_key(bridge, source):
+    """If a paid provider returned nothing, notify UI so the key can be removed."""
+    try:
+        from sff.network.provider_keys import source_to_provider_label
+        label = source_to_provider_label(source)
+        if not label:
+            return
+        if label == "Hubcap":
+            bridge._hubcap_unavailable = True
+            bridge._store_client = None
+        bridge.task_finished.emit(json.dumps({
+            "task": "provider_keys",
+            "invalid": [label],
+            "fallback": "free providers (GMRC / GitHub)",
+            "pages": {label: {
+                "Hubcap": "https://hubcap.pages.dev",
+                "Ryuu": "https://generator.ryuu.lol",
+                "DepotBox": "https://depotbox.org",
+            }.get(label, "")},
+            "reason": "empty_download",
+        }))
+    except Exception as exc:
+        logger.debug("dead-key notify failed: %s", exc)
+
+
 # ── Private helpers used ONLY by download-domain methods ──────────────
 
 def _bridge_auto_update_was_registered(bridge, app_id) -> bool:
@@ -154,7 +179,7 @@ def _bridge_download_game_fastest(bridge, app_id):
         bridge._emit_task_result(
             "download_fastest",
             success,
-            f"Download {'completed' if success else 'failed'} for App {app_id}",
+            "Setup complete — start the game in Steam to download files." if success else f"Download failed for App {app_id}",
             app_id=app_id,
         )
 
@@ -360,6 +385,7 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
             # 10% forever. download_lua_direct returns None on timeout
             # against the Steam CM (30s ceiling) or any other source
             # error. The user can switch source and retry.
+            _flag_dead_paid_key(bridge, source)
             bridge.download_progress.emit(json.dumps({
                 "task": "download_fastest",
                 "app_id": app_id,
@@ -369,6 +395,7 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
                     "provider (Hubcap / MidraEveryDay) and retry."
                 ),
                 "progress": 0,
+                "error": True,
             }))
             return False
 
@@ -451,12 +478,26 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
                         remove_depots_from_lua(lua_path, to_delete)
                     lua_contents = lua_path.read_text(encoding="utf-8", errors="replace")
                     parsed = parse_lua_contents(lua_contents, lua_path)
+                    install_lua_to_steam(steam_path, app_id, lua_path)
                 else:
                     manifest_map = downloader.get_manifest_ids(parsed, auto=True)
             else:
                 manifest_map = downloader.get_manifest_ids(parsed, auto=True)
+                if manifest_map:
+                    from sff.lua.manager import write_manifest_pins_to_lua
+                    write_manifest_pins_to_lua(lua_path, manifest_map)
+                    install_lua_to_steam(steam_path, app_id, lua_path)
                 
             downloader.download_manifests_parallel(parsed, auto_manifest=True, manifest_override=manifest_map)
+            if not manifest_map:
+                _flag_dead_paid_key(bridge, source)
+                bridge.download_progress.emit(json.dumps({
+                    "app_id": app_id,
+                    "status": "Empty download failed — no manifests from this source.",
+                    "progress": 0,
+                    "error": True,
+                }))
+                return False
 
             # Retrieve buildid and calculate game size from Steam app info
             if provider:
@@ -511,19 +552,37 @@ def _bridge_run_windows_fastest(bridge, app_id, source='', request_update=False,
         bridge.download_progress.emit(json.dumps({
             "app_id": app_id, "status": "Updating download tracker", "progress": 95
         }))
+        setup_ok = bool(manifest_map)
         if hasattr(bridge._ui, 'download_manager') and bridge._ui.download_manager:
             try:
                 dl_id = bridge._ui.download_manager.track_external(
                     app_id=app_id,
                     game_name=parsed.name if hasattr(parsed, 'name') else f"App {app_id}",
                 )
-                bridge._ui.download_manager.complete_external(dl_id, success=True)
+                bridge._ui.download_manager.complete_external(dl_id, success=setup_ok)
             except Exception as e:
                 logger.warning("download tracking failed: %s", e)
 
-        # Step 11: done
+        from pathvalidate import sanitize_filename
+        app_name = parsed.name if hasattr(parsed, 'name') else ""
+        installdir = sanitize_filename(app_name).replace("'", "").strip() if app_name else str(app_id)
+        common_dir = lib_path / "steamapps" / "common" / installdir
+        files_exist = common_dir.is_dir() and any(common_dir.iterdir())
+
+        if not setup_ok:
+            _flag_dead_paid_key(bridge, source)
+            bridge.download_progress.emit(json.dumps({
+                "app_id": app_id,
+                "status": "Empty download failed — no manifests.",
+                "progress": 0,
+                "error": True,
+            }))
+            return False
+
         bridge.download_progress.emit(json.dumps({
-            "app_id": app_id, "status": "Complete", "progress": 100
+            "app_id": app_id,
+            "status": "Ready in Steam — start the download yourself when you want" if not files_exist else "Complete",
+            "progress": 100,
         }))
         return True
 
@@ -657,7 +716,7 @@ def _bridge_download_dlc_oureveryday(bridge, dlc_appid, parent_appid):
          database (same one oureveryday uses for the full game flow).
          Skip any depot whose key isn't on file.
       3. Pull the manifest bytes through the existing cascade
-         (gmrc -> ManifestHub https mirrors -> GitHub mirror -> CDN)
+         (Hubcap if configured -> gmrc -> ManifestHub https mirrors -> GitHub mirror -> CDN)
          and drop into <steam>/depotcache/.
       4. APPEND `addappid(<depot>, 1, "<key>")` lines to the existing
          <steam>/config/stplug-in/<parent>.lua. Never overwrite the
@@ -1790,12 +1849,12 @@ def _bridge_download_game_ddmod(bridge, app_id, source, lua_path, manifest_folde
                             " To use them, enable 'Use Pinned Manifest Versions from Lua' in Settings."
                         )
 
-            # Step 4: gmrc -> ManifestHub -> GitHub for known manifest IDs
+            # Step 4: Hubcap (if configured) -> GMRC -> ManifestHub -> GitHub
             if manifests_dict and steam_path:
                 try:
                     import shutil as _step4_shutil
                     from sff.manifest.downloader import ManifestDownloader
-                    _md2 = ManifestDownloader(provider=_provider, steam_path=steam_path, use_hubcap=False)
+                    _md2 = ManifestDownloader(provider=_provider, steam_path=steam_path)
                     _staging.mkdir(exist_ok=True)
                     _dc2 = steam_path / "depotcache"
                     _dc2.mkdir(parents=True, exist_ok=True)
@@ -1959,7 +2018,7 @@ def _bridge_download_game_ddmod(bridge, app_id, source, lua_path, manifest_folde
             if ok and _size <= 0:
                 return (
                     False,
-                    "DepotDownloaderMod exited without errors but wrote 0 bytes. "
+                    "Empty download failed — DepotDownloaderMod wrote 0 bytes. "
                     "Manifest setup may be ready, but the game files were not downloaded.",
                 )
             # Build a more specific failure message: did EVERY depot exit

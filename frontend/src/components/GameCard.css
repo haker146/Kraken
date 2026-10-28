@@ -8,7 +8,7 @@
   transition: border-color 0.2s, box-shadow 0.2s;
   display: flex;
   flex-direction: column;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 2 / 3;
 }
 
 .game-card:hover {

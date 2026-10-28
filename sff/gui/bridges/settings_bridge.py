@@ -47,3 +47,20 @@ def _bridge_set_secret_setting(bridge, key, value):
                 logger.debug("Hubcap API key updated in bridge: %s", bool(bridge._api_key))
             return True
     return False
+
+
+def _bridge_remove_provider_key(bridge, label):
+    """Clear a dead Hubcap/Ryuu/DepotBox key and fall back to free providers."""
+    from sff.network.provider_keys import remove_provider_key, source_to_provider_label
+
+    name = str(label or "").strip()
+    if name and name not in ("Hubcap", "Ryuu", "DepotBox"):
+        name = source_to_provider_label(name) or name
+    ok = remove_provider_key(name)
+    if ok and name == "Hubcap":
+        bridge._api_key = None
+        bridge._store_client = None
+        bridge._hubcap_unavailable = True
+    if ok:
+        logger.info("Removed dead %s API key; using free providers", name)
+    return bool(ok)

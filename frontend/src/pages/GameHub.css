@@ -297,10 +297,46 @@
 
 
 .game-hub {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+.gh-details-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(6, 8, 16, 0.78);
+  backdrop-filter: blur(10px);
+}
+
+.gh-details-loading-spin {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(167, 139, 250, 0.18);
+  border-top-color: #a78bfa;
+  animation: spin 0.75s linear infinite;
+}
+
+.gh-details-loading-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--t-primary);
+  max-width: 70%;
+  text-align: center;
+}
+
+.gh-details-loading-sub {
+  font-size: 12px;
+  color: var(--t-secondary);
 }
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
@@ -426,6 +462,25 @@
   text-shadow: 0 2px 20px rgba(0, 0, 0, 0.95);
   max-width: 60%;
   line-height: 1.15;
+}
+
+.gh-hero-brand {
+  max-width: min(560px, 72%);
+  min-height: 72px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.gh-hero-logo-img {
+  max-width: 100%;
+  max-height: 140px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left bottom;
+  filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.92)) drop-shadow(0 2px 6px rgba(0, 0, 0, 0.95));
+  user-select: none;
+  pointer-events: none;
 }
 
 /* Hero Controls at bottom-right */
@@ -590,13 +645,27 @@
   overflow-y: auto;
 }
 
+.gh-cover.steam-img-wrap,
 .gh-cover {
   width: 100%;
-  aspect-ratio: 2/3;
-  object-fit: cover;
+  height: auto;
+  aspect-ratio: 600 / 900;
+  flex: 0 0 auto;
+  align-self: start;
   border-radius: 10px;
   border: 1px solid var(--c-border);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.gh-cover img,
+.gh-cover .steam-img-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
 }
 
 /* ── Action Bar ──────────────────────────────────────────────────────────── */
@@ -678,6 +747,115 @@
 }
 .gh-btn-secondary:hover { background: var(--c-surface-3); color: var(--t-primary); }
 
+/* ── GameHub Auto-Update Card & Toggle ── */
+.gh-autoupdate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 4px;
+}
+
+.gh-autoupdate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gh-autoupdate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gh-autoupdate-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--t-primary);
+}
+
+.gh-autoupdate-status {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+.gh-autoupdate-status.is-on {
+  color: var(--c-green);
+  background: var(--c-green-dim);
+}
+.gh-autoupdate-status.is-off {
+  color: var(--c-red);
+  background: var(--c-red-dim);
+}
+
+.gh-toggle-btn {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 99px;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.gh-toggle-btn.active {
+  background: var(--c-accent);
+}
+
+.gh-toggle-slider {
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.gh-toggle-btn.active .gh-toggle-slider {
+  transform: translateX(16px);
+  background: #000;
+}
+
+.gh-btn-update-now {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(245, 158, 11, 0.2);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.gh-btn-update-now:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.35);
+  border-color: rgba(245, 158, 11, 0.8);
+}
+
+.gh-btn-update-now:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .gh-quick-stats {
   display: flex;
   flex-direction: column;
@@ -740,6 +918,17 @@
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+
+.gh-overview-logo-img {
+  max-width: min(420px, 100%);
+  max-height: 72px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+  user-select: none;
 }
 
 /* ── Game description (Steam style) ───────────────────────────────────────── */
@@ -935,6 +1124,167 @@
 }
 .gh-crack-watch-link:hover { opacity: 0.75; }
 
+/* ── Downgrade tab ───────────────────────────────────────────────────────── */
+.gh-downgrade-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 640px;
+}
+
+.gh-dg-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--c-surface-1);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  color: #38bdf8;
+}
+.gh-dg-intro strong {
+  display: block;
+  color: var(--t-primary);
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.gh-dg-intro p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t-muted);
+  font-weight: 400;
+}
+
+.gh-dg-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.gh-dg-stat {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+}
+.gh-dg-stat span {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--t-muted);
+  margin-bottom: 4px;
+}
+.gh-dg-stat code {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--t-primary);
+}
+
+.gh-dg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.gh-dg-chip {
+  padding: 5px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t-secondary);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+}
+.gh-dg-chip.active,
+.gh-dg-chip:hover {
+  color: #fff;
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.14);
+}
+
+.gh-dg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gh-dg-field span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--t-muted);
+}
+.gh-dg-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(0,0,0,0.25);
+  color: var(--t-primary);
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+}
+.gh-dg-field input:focus {
+  outline: none;
+  border-color: #38bdf8;
+}
+
+.gh-dg-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.28);
+}
+.gh-dg-run:hover:not(:disabled) { filter: brightness(1.08); }
+.gh-dg-run:disabled { opacity: 0.65; cursor: not-allowed; }
+
+.gh-dg-progress {
+  position: relative;
+  height: 4px;
+  background: var(--c-surface-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.gh-dg-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #0284c7, #38bdf8);
+}
+.gh-dg-progress span {
+  position: absolute;
+  right: 0;
+  top: -16px;
+  font-size: 10px;
+  color: var(--t-muted);
+}
+
+.gh-dg-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.gh-dg-note.ok {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.22);
+}
+.gh-dg-note.error {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+}
+
 /* ── DLC tab ─────────────────────────────────────────────────────────────── */
 .gh-dlc-tab { display: flex; flex-direction: column; gap: 12px; }
 
@@ -1038,15 +1388,6 @@
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Sidebar cover — enforce 2:3 portrait ratio ──────────────────────────── */
-.gh-cover {
-  width: 100%;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,0.08);
-}
-
 /* ── Watch Trailer button on hero ─────────────────────────────────────────── */
 .gh-trailer-btn {
   position: absolute;
@@ -1074,8 +1415,8 @@
   position: fixed;
   inset: 0;
   z-index: 10000;
-  background: rgba(0,0,0,0.85);
-  backdrop-filter: blur(12px);
+  background: rgba(3, 5, 12, 0.88);
+  backdrop-filter: blur(16px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1086,11 +1427,148 @@
   position: relative;
   width: 100%;
   max-width: 1100px;
-  aspect-ratio: 16/9;
   border-radius: 14px;
   overflow: hidden;
+  background: #060810;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.95), 0 0 40px rgba(124, 58, 237, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-trailer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #0d111e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gh-trailer-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gh-trailer-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgba(124, 58, 237, 0.25);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+}
+
+.gh-trailer-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
+}
+
+.gh-trailer-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gh-trailer-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+}
+
+.gh-trailer-picker-btn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.gh-trailer-picker-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.gh-trailer-picker-btn.active {
+  background: #7c3aed;
+  border-color: #8b5cf6;
+  color: #fff;
+}
+
+.gh-trailer-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.gh-trailer-action-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.gh-trailer-action-btn.primary {
+  background: #7c3aed;
+  border-color: #8b5cf6;
+  color: #fff;
+}
+
+.gh-trailer-action-btn.primary:hover {
+  background: #6d28d9;
+  box-shadow: 0 0 15px rgba(124, 58, 237, 0.4);
+}
+
+.gh-trailer-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.gh-trailer-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.gh-trailer-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
   background: #000;
-  box-shadow: 0 40px 100px rgba(0,0,0,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .gh-trailer-video {
@@ -1099,37 +1577,123 @@
   object-fit: contain;
 }
 
-.gh-trailer-close {
+.gh-trailer-fallback {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 2;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(0,0,0,0.7);
-  color: #fff;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s;
+  background: radial-gradient(circle at center, #121629 0%, #060810 100%);
+  padding: 32px;
+  text-align: center;
 }
-.gh-trailer-close:hover { background: rgba(255,255,255,0.2); }
 
-.gh-trailer-mute {
+.gh-trailer-fallback-glow {
   position: absolute;
-  top: 12px;
-  right: 56px;
-  z-index: 2;
-  width: 36px;
-  height: 36px;
+  width: 300px;
+  height: 300px;
+  background: rgba(124, 58, 237, 0.15);
+  filter: blur(80px);
   border-radius: 50%;
-  background: rgba(0,0,0,0.7);
-  color: #fff;
+  pointer-events: none;
+}
+
+.gh-trailer-fallback-box {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.gh-trailer-fallback-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(124, 58, 237, 0.2);
+  border: 2px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s;
+  box-shadow: 0 0 25px rgba(124, 58, 237, 0.35);
+  margin-bottom: 4px;
 }
-.gh-trailer-mute:hover { background: rgba(255,255,255,0.2); }
+
+.gh-trailer-fallback-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  padding: 3px 10px;
+  border-radius: 99px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.gh-trailer-fallback-box h3 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.gh-trailer-fallback-box p {
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+
+.gh-trailer-fallback-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gh-trailer-launch-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  border: 1px solid #8b5cf6;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4);
+  transition: all 0.18s;
+}
+
+.gh-trailer-launch-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 25px rgba(124, 58, 237, 0.6);
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+
+.gh-trailer-browser-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.gh-trailer-browser-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  transform: translateY(-1px);
+}
 

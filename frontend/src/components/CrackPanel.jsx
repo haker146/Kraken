@@ -1,46 +1,127 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import {
   ShieldAlert, ShieldCheck, ShieldX, Download,
-  ChevronDown, ChevronUp, RefreshCw, ArrowDownToLine,
-  CheckCircle, AlertTriangle, Clock, ExternalLink
+  RefreshCw, ArrowDownToLine, CheckCircle, AlertTriangle, ExternalLink, MessagesSquare,
 } from 'lucide-react';
+import { bridge } from '../lib/bridge';
+import { DRM_ENTRIES, drmCardsFor, isDenuvoRemoved, isSteamOnlyProtection } from '../data/drmEncyclopedia';
 import './CrackPanel.css';
 
 const DRM_COLORS = {
   'Denuvo': 'red',
+  'Denuvo removed by developer': 'green',
   'Steam DRM': 'yellow',
   'EAC': 'orange',
   'BattleEye': 'orange',
   'None': 'green',
+  'Digital.ai (Arxan) + Rockstar Games Launcher': 'orange',
+  'Digital.ai (Arxan)': 'orange',
+  'Arxan': 'orange',
 };
 
-export default function CrackPanel({ crackInfo, game, currentBuild }) {
+function mainCsRinThread(crackInfo) {
+  const urls = [...(crackInfo?.source_crack || [])].filter(Boolean);
+  const rin = urls.find((url) => /cs\.rin\.ru/i.test(url));
+  if (!rin) return urls[0] || '';
+  try {
+    const parsed = new URL(rin);
+    const topic = parsed.searchParams.get('t');
+    if (topic) return `https://cs.rin.ru/forum/viewtopic.php?t=${topic}`;
+  } catch { /* fall through */ }
+  return rin.split('#')[0];
+}
+
+function statusLabel({ isDrmFree, isSteamDrm, isCracked, denuvoRemoved }) {
+  if (denuvoRemoved) return { text: 'Removed by developer', kind: 'removed' };
+  if (isDrmFree) return { text: 'DRM-Free', kind: 'drmfree' };
+  if (isSteamDrm) return { text: 'Steam DRM', kind: 'steamdrm' };
+  if (isCracked) return { text: 'Cracked', kind: 'cracked' };
+  return { text: 'Not cracked', kind: 'uncracked' };
+}
+
+export default function CrackPanel({ crackInfo, game, currentBuild, onDowngrade }) {
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState('');
   const [done, setDone] = useState(false);
-  const [expanded, setExpanded] = useState(true);
+  const [error, setError] = useState('');
+  const [savedPath, setSavedPath] = useState('');
+
+  const appId = String(game?.app_id || '');
+
+  useEffect(() => {
+    const unsubProg = bridge.on('download_progress', (raw) => {
+      try {
+        const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (String(payload.app_id) !== appId) return;
+        if (payload.progress != null) setProgress(payload.progress);
+        if (payload.status) setStatus(payload.status);
+      } catch { /* ignore */ }
+    });
+    const unsubTask = bridge.on('task_finished', (raw) => {
+      try {
+        const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (payload.task !== 'crack_apply') return;
+        if (String(payload.app_id) !== appId) return;
+        setDownloading(false);
+        if (payload.success) {
+          setDone(true);
+          setError('');
+          setProgress(100);
+          setSavedPath(payload.saved_path || payload.message || '');
+        } else {
+          setError(payload.message || 'Crack download failed.');
+        }
+      } catch { /* ignore */ }
+    });
+    return () => {
+      unsubProg?.();
+      unsubTask?.();
+    };
+  }, [appId]);
 
   if (!crackInfo) return null;
 
-  const drmColor = DRM_COLORS[crackInfo.drm] || 'muted';
-  const needsDowngrade = crackInfo.required_build && currentBuild &&
-    String(currentBuild) !== String(crackInfo.required_build);
+  const protection = crackInfo.protection || crackInfo.drm || 'Unknown';
+  const denuvoRemoved = isDenuvoRemoved(protection, crackInfo);
+  const drmColor = DRM_COLORS[protection]
+    || (denuvoRemoved ? 'green'
+      : String(protection).toLowerCase().includes('denuvo') ? 'red'
+      : /arxan|digital\.ai|rockstar/i.test(protection) ? 'orange' : 'muted');
+  const requiredBuild = crackInfo.required_build || crackInfo.crack_buildid || '';
+  const latestBuild = crackInfo.latest_buildid || '';
+  const needsDowngrade = requiredBuild && currentBuild && String(currentBuild) !== String(requiredBuild);
+  const crackBehindLatest = requiredBuild && latestBuild && String(requiredBuild) !== String(latestBuild);
+  const catalogHref = Boolean(crackInfo.can_install || crackInfo.fix?.href);
+  const hrefForInstalled = crackInfo.can_install_this_build ?? catalogHref;
+  const canInstall = catalogHref;
+  const isDrmFree = /none|drm-free|drm free/i.test(protection) || crackInfo.status_key === 'drm-free';
+  const isSteamDrm = denuvoRemoved || isSteamOnlyProtection(protection) || (/steam/i.test(protection) && !/denuvo|eac|battleye|ubisoft|epic/i.test(protection));
+  const isCracked = Boolean(crackInfo.cracked) || String(crackInfo.status_key || '').includes('cracked');
+  const drmCards = denuvoRemoved
+    ? [DRM_ENTRIES.denuvo_removed, ...drmCardsFor(protection).filter((card) => card.id !== 'denuvo' && card.id !== 'denuvo_removed')]
+    : isDrmFree ? [DRM_ENTRIES.drmfree] : drmCardsFor(protection);
+  const primaryCard = drmCards.find((card) => card.id !== 'steam') || drmCards[0];
+  const extraCards = drmCards.filter((card) => card !== primaryCard);
+  const threadUrl = mainCsRinThread(crackInfo);
+  const badge = statusLabel({ isDrmFree, isSteamDrm, isCracked, denuvoRemoved });
+  const scene = crackInfo.scene_group || crackInfo.crack_source;
 
-  const handleDownload = async () => {
-    if (!crackInfo.crack_url) return;
+  const showDownload = !done && !isSteamDrm && !denuvoRemoved && (
+    currentBuild ? Boolean(hrefForInstalled) || (catalogHref && needsDowngrade) : catalogHref
+  );
+
+  const handleInstall = () => {
+    if (!showDownload) return;
     setDownloading(true);
-    // Simulate download progress (will be replaced with real bridge call)
-    for (let i = 1; i <= 100; i++) {
-      await new Promise(r => setTimeout(r, 30));
-      setProgress(i);
-    }
-    setDownloading(false);
-    setDone(true);
+    setDone(false);
+    setError('');
+    setProgress(8);
+    setSavedPath('');
+    setStatus('Looking up crack…');
+    bridge.call('apply_game_crack', appId, game?.name || '');
   };
-
-  const isDrmFree = crackInfo.drm === 'None';
-  const isSteamDrm = crackInfo.drm === 'Steam DRM';
 
   return (
     <motion.div
@@ -49,197 +130,162 @@ export default function CrackPanel({ crackInfo, game, currentBuild }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
     >
-      {/* Header */}
-      <button className="crack-panel-header" onClick={() => setExpanded(!expanded)}>
+      <div className="crack-top">
         <div className="crack-drm-tag">
-          {isDrmFree || crackInfo.cracked ? (
-            <ShieldCheck size={16} />
-          ) : (
-            <ShieldAlert size={16} />
-          )}
-          <span>{isDrmFree ? 'DRM-Free' : crackInfo.drm}</span>
-          {crackInfo.drm_version && (
-            <span className="crack-drm-version">{crackInfo.drm_version}</span>
-          )}
+          {isDrmFree || isCracked || isSteamDrm || denuvoRemoved ? <ShieldCheck size={16} /> : <ShieldAlert size={16} />}
+          <span>{denuvoRemoved ? 'Denuvo removed by developer' : isDrmFree ? 'DRM-Free' : protection}</span>
         </div>
+        <div className="crack-top-chips">
+          {scene && <span className="crack-chip">{scene}</span>}
+          {crackInfo.crack_date && <span className="crack-chip">{crackInfo.crack_date}</span>}
+          {crackInfo.days && <span className="crack-chip">{crackInfo.days}</span>}
+          <span className={`crack-status-badge ${badge.kind}`}>{badge.text}</span>
+        </div>
+      </div>
 
-        {isDrmFree ? (
-          <span className="crack-status-badge drmfree">✓ DRM-Free</span>
-        ) : isSteamDrm ? (
-          <span className="crack-status-badge steamdrm">✓ Steam DRM Supported</span>
-        ) : crackInfo.cracked ? (
-          <span className="crack-status-badge cracked">⚡ Cracked</span>
-        ) : (
-          <span className="crack-status-badge uncracked">🔒 Denuvo Locked</span>
-        )}
-
-        {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-      </button>
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            className="crack-panel-body"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            {isDrmFree ? (
-              /* ── 100% DRM-Free Game (e.g. Cyberpunk 2077, Baldur's Gate 3) ── */
-              <div className="crack-info-state-box free">
-                <CheckCircle size={22} className="crack-state-icon free" />
-                <div className="crack-state-text">
-                  <div className="crack-state-title">Gra całkowicie DRM-Free (Brak zabezpieczeń)</div>
-                  <p className="crack-state-desc">
-                    Ten tytuł nie posiada zabezpieczeń antypirackich takich jak Denuvo ani blokad Steam DRM.
-                    Nie wymaga cracka ani emulatora — pliki gry działają bezpośrednio po instalacji.
-                  </p>
-                  {crackInfo.notes && (
-                    <div className="crack-note-inline">{crackInfo.notes}</div>
-                  )}
-                </div>
-              </div>
-            ) : isSteamDrm ? (
-              /* ── Standard Steam DRM (not on isitcracked.com) ── */
-              <div className="crack-info-state-box steam">
-                <CheckCircle size={22} className="crack-state-icon steam" />
-                <div className="crack-state-text">
-                  <div className="crack-state-title">Standardowe zabezpieczenie Steam DRM</div>
-                  <p className="crack-state-desc">
-                    Tytuł nie posiada inwazyjnego zabezpieczenia Denuvo. Uruchamia się bezproblemowo
-                    z wykorzystaniem wbudowanego emulatora Steam (Goldberg Emulator / SmokeAPI).
-                  </p>
-                  {crackInfo.notes && (
-                    <div className="crack-note-inline">{crackInfo.notes}</div>
-                  )}
-                </div>
-              </div>
-            ) : crackInfo.cracked ? (
-              /* ── Third-party DRM Cracked (e.g. Resident Evil 4 by EMPRESS) ── */
-              <>
-                {/* Crack Metadata */}
-                <div className="crack-meta">
-                  <MetaItem label="Wersja cracka" value={crackInfo.crack_version} />
-                  <MetaItem label="Grupa / Źródło" value={crackInfo.crack_source} />
-                  <MetaItem label="Data wydania" value={crackInfo.crack_date} />
-                  <MetaItem label="Rozmiar archiwum" value={crackInfo.file_size} />
-                </div>
-
-                {/* Target files if specified */}
-                {crackInfo.target_files && crackInfo.target_files.length > 0 && (
-                  <div className="crack-target-files">
-                    <span className="crack-target-label">Zawartość archiwum cracka:</span>
-                    <div className="crack-files-chips">
-                      {crackInfo.target_files.map(f => (
-                        <code key={f} className="crack-file-chip">{f}</code>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {crackInfo.notes && (
-                  <div className="crack-note">
-                    <AlertTriangle size={12} />
-                    {crackInfo.notes}
-                  </div>
-                )}
-
-                {/* Build Status */}
-                {crackInfo.required_build && (
-                  <div className={`crack-build-status ${needsDowngrade ? 'needs-downgrade' : 'ok'}`}>
-                    {needsDowngrade ? (
-                      <>
-                        <AlertTriangle size={13} />
-                        <span>Wymagany build Steam <code>{crackInfo.required_build}</code> (twój: <code>{currentBuild || 'nieznany'}</code>)</span>
-                        <button className="crack-downgrade-btn">
-                          <ArrowDownToLine size={12} /> Cofnij wersję gry
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle size={13} />
-                        <span>Build gry <code>{crackInfo.required_build}</code> — W pełni zgodny ✓</span>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Download Crack Action Area */}
-                {crackInfo.crack_url && (
-                  !done ? (
-                    <div className="crack-download-area">
-                      <div className="crack-actions-row">
-                        <button
-                          className="crack-download-btn"
-                          onClick={handleDownload}
-                          disabled={downloading}
-                        >
-                          {downloading
-                            ? <><RefreshCw size={14} className="spin" /> Pobieranie cracka…</>
-                            : <><Download size={14} /> Pobierz i zainstaluj crack {crackInfo.file_size ? `(${crackInfo.file_size})` : ''}</>
-                          }
-                        </button>
-
-                        <a
-                          href={crackInfo.crack_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="crack-link-btn"
-                          title="Bezpośredni link do pliku"
-                        >
-                          <ExternalLink size={13} /> Plik .zip
-                        </a>
-
-                        {crackInfo.mirror_url && (
-                          <a
-                            href={crackInfo.mirror_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="crack-link-btn mirror"
-                            title="Mirror pobierania"
-                          >
-                            <ExternalLink size={13} /> Mirror
-                          </a>
-                        )}
-                      </div>
-
-                      {downloading && (
-                        <div className="crack-progress">
-                          <div className="crack-progress-bar" style={{ width: `${progress}%` }} />
-                          <span>{progress}%</span>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="crack-success">
-                      <CheckCircle size={15} />
-                      Pliki cracka zostały pomyślnie zainstalowane do folderu gry!
-                    </div>
-                  )
-                )}
-              </>
-            ) : (
-              /* ── Third-party DRM Locked (e.g. uncracked Denuvo game) ── */
-              <div className="crack-uncracked-msg">
-                <ShieldX size={28} />
-                <p>Gra zabezpieczona przez <strong>{crackInfo.drm}</strong> {crackInfo.drm_version && `(${crackInfo.drm_version})`}.</p>
-                <p className="crack-muted">Obecnie brak działającego cracka w bazie isitcracked.com.</p>
+      {primaryCard && (
+        <section className={`crack-hero drm-card-${primaryCard.id}`}>
+          <div className="crack-hero-copy">
+            <span className="drm-card-kicker">{primaryCard.category}</span>
+            <h3 className="drm-card-title">{primaryCard.name}</h3>
+            <p className="drm-card-blurb">{primaryCard.blurb}</p>
+            {extraCards.length > 0 && (
+              <div className="crack-extra-drm">
+                {extraCards.map((card) => (
+                  <span key={card.id} className="crack-chip">+ {card.name}</span>
+                ))}
               </div>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
+          </div>
+          {primaryCard.logo && (
+            <div className="crack-hero-logo" aria-hidden="true">
+              <img src={primaryCard.logo} alt="" className="drm-card-logo" />
+            </div>
+          )}
+        </section>
+      )}
 
-function MetaItem({ label, value }) {
-  if (!value) return null;
-  return (
-    <div className="crack-meta-item">
-      <span className="crack-meta-label">{label}</span>
-      <span className="crack-meta-value">{value}</span>
-    </div>
+      <div className="crack-actions">
+        {threadUrl && (
+          <button
+            type="button"
+            className="crack-link-btn"
+            onClick={() => bridge.call('open_url', threadUrl)}
+          >
+            <MessagesSquare size={14} />
+            cs.rin.ru thread
+            <ExternalLink size={12} />
+          </button>
+        )}
+
+        {showDownload && (
+          <button
+            type="button"
+            className="crack-download-btn"
+            onClick={handleInstall}
+            disabled={downloading}
+          >
+            {downloading
+              ? <><RefreshCw size={14} className="spin" /> {status || 'Downloading…'}</>
+              : <><Download size={14} /> Download crack{requiredBuild ? ` · ${requiredBuild}` : ''}</>}
+          </button>
+        )}
+        {done && (
+          <div className="crack-success">
+            <CheckCircle size={15} />
+            <span>Saved in the Kraken <code>cracks</code> folder. Unpack it and copy the files into the game yourself.</span>
+            {savedPath && (
+              <button
+                type="button"
+                className="crack-open-folder"
+                onClick={() => bridge.call('open_local_path', savedPath)}
+              >
+                Open folder
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {canInstall && !done && (
+        <div className="crack-note">
+          <AlertTriangle size={12} />
+          Download only — Kraken will not inject the crack into the game folder.
+        </div>
+      )}
+      {downloading && (
+        <div className="crack-progress">
+          <div className="crack-progress-bar" style={{ width: `${progress}%` }} />
+          <span>{progress}%</span>
+        </div>
+      )}
+      {error && <div className="crack-note"><AlertTriangle size={12} /> {error}</div>}
+
+      {(latestBuild || requiredBuild || currentBuild) && (
+        <div className="crack-versions">
+          <div className="crack-version-cell">
+            <span>Steam latest</span>
+            <code>{latestBuild || '—'}</code>
+          </div>
+          <div className="crack-version-cell">
+            <span>Crack for</span>
+            <code>{requiredBuild || '—'}</code>
+          </div>
+          <div className="crack-version-cell">
+            <span>Installed</span>
+            <code>{currentBuild || '—'}</code>
+          </div>
+        </div>
+      )}
+
+      {requiredBuild && (
+        <div className={`crack-build-status ${needsDowngrade || crackBehindLatest ? 'needs-downgrade' : 'ok'}`}>
+          {needsDowngrade ? (
+            <>
+              <AlertTriangle size={13} />
+              <span>Crack is for Steam build <code>{requiredBuild}</code> (installed: <code>{currentBuild || '?'}</code>)</span>
+              <button type="button" className="crack-downgrade-btn" onClick={() => onDowngrade?.(requiredBuild)}>
+                <ArrowDownToLine size={12} /> Download that build
+              </button>
+            </>
+          ) : crackBehindLatest ? (
+            <>
+              <AlertTriangle size={13} />
+              <span>Crack targets <code>{requiredBuild}</code>, Steam latest is <code>{latestBuild}</code></span>
+              <button type="button" className="crack-downgrade-btn" onClick={() => onDowngrade?.(requiredBuild)}>
+                <ArrowDownToLine size={12} /> Get crack build
+              </button>
+            </>
+          ) : (
+            <>
+              <CheckCircle size={13} />
+              <span>Targets build <code>{requiredBuild}</code>{currentBuild ? ' — matches installed' : latestBuild ? ' — matches Steam latest' : ''}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {!canInstall && !done && isCracked && !isSteamDrm && !isDrmFree && !denuvoRemoved && (
+        <p className="crack-muted">Cracked, but the catalog has no installable file yet. Use the cs.rin.ru thread if it is listed.</p>
+      )}
+      {!canInstall && !isCracked && !isDrmFree && !isSteamDrm && !denuvoRemoved && (
+        <div className="crack-uncracked-msg">
+          <ShieldX size={22} />
+          <p>
+            Protected by <strong>{protection}</strong>. No extra file is listed — this will not launch.
+            {/denuvo/i.test(protection) ? ' Do not download hypervisor packs; Kraken will not install them.' : ''}
+          </p>
+        </div>
+      )}
+      {denuvoRemoved && (
+        <p className="crack-muted">
+          The publisher removed Denuvo in a later official update. Stay on the current Steam build —
+          LumaCore / a native Steam install is enough. No extra crack file needed.
+        </p>
+      )}
+      {isSteamDrm && !denuvoRemoved && (
+        <p className="crack-muted">Standard Steam DRM — LumaCore / a native Steam install is enough. No extra crack file needed.</p>
+      )}
+    </motion.div>
   );
 }

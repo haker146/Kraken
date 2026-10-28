@@ -1,15 +1,15 @@
 .ctx-menu {
   position: fixed;
   z-index: 9999;
-  width: 218px;
+  width: 268px;
   background: rgba(18, 22, 34, 0.97);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0,0,0,0.6);
-  overflow: hidden;
-  padding: 4px 0;
+  overflow: visible;
+  padding: 6px 0;
 }
 
 .ctx-header {
@@ -36,9 +36,9 @@
 .ctx-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 14px;
+  padding: 9px 16px;
   font-size: 13px;
   font-weight: 500;
   color: var(--t-secondary);
@@ -64,6 +64,34 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: 0;
+}
+
+.ctx-item-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ctx-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.2;
+}
+
+.ctx-status.on {
+  color: var(--c-green);
+  background: var(--c-green-dim);
+}
+
+.ctx-status.off {
+  color: var(--c-red);
+  background: var(--c-red-dim);
 }
 
 .ctx-item-sub {
@@ -81,7 +109,7 @@
   position: absolute;
   left: 100%;
   top: -4px;
-  width: 200px;
+  width: 240px;
   background: rgba(18, 22, 34, 0.97);
   backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.1);

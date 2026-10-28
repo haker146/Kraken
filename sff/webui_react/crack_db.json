@@ -43,8 +43,8 @@
   },
   "1174180": {
     "name": "Red Dead Redemption 2",
-    "drm": "Rockstar Social Club DRM",
-    "drm_version": null,
+    "drm": "Digital.ai (Arxan) + Rockstar Games Launcher",
+    "drm_version": "Digital.ai / Arxan",
     "crack_version": "1.0.1436.28",
     "crack_source": "EMPRESS / Mr_Goldberg",
     "crack_date": "2020-10-23",
@@ -53,7 +53,7 @@
     "file_size": "38.2 MB",
     "target_files": ["RDR2.exe", "EMP.dll", "gameversion.txt"],
     "required_build": null,
-    "notes": "Bypass Rockstar Games Social Club + fix na wyłączanie gry po 15 minutach."
+    "notes": "PC never had Denuvo. Protection is Digital.ai (Arxan) plus the Rockstar launcher / Social Club."
   },
   "271590": {
     "name": "Grand Theft Auto V",

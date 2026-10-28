@@ -1,7 +1,19 @@
+# Operator catalog / session — live on the Ship-hold branch, not main
+crackfiles.json
+cs_rin_cookie.txt
+cracks/
+
 # Sensitive data (paths, passwords, local output)
 cursor.md
 .cursor/
 settings.bin
+settings.json
+.sff_encryption_key
+.cache/
+err.log
+launch.log
+all_games.txt
+manifests/
 settings_export.json
 credentials.json
 debug.log

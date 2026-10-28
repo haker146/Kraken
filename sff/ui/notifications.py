@@ -68,7 +68,16 @@ class NotificationService:
                 self.enabled = False
 
     def is_enabled(self):
-        return self.enabled and NOTIFICATIONS_AVAILABLE and self.toaster is not None
+        if not self.enabled:
+            return False
+        try:
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app is not None and getattr(app, "_tray", None) is not None:
+                return True
+        except Exception:
+            pass
+        return NOTIFICATIONS_AVAILABLE and self.toaster is not None
 
     def show(
         self,
@@ -77,32 +86,52 @@ class NotificationService:
         notification_type = NotificationType.INFO,
         duration = 5
     ):
+        kind_map = {
+            NotificationType.SUCCESS: "success",
+            NotificationType.ERROR: "error",
+            NotificationType.INFO: "info",
+            NotificationType.UPDATE: "info",
+        }
+        if _ui_emitter is not None:
+            try:
+                _ui_emitter(title, message, kind_map.get(notification_type, "info"))
+            except Exception:
+                pass
+
         if not self.is_enabled():
             logger.debug(f"Notifications disabled. Would show: {title} - {message}")
-            return False
+            return _ui_emitter is not None
+
+        # First priority: native Qt tray notification
         try:
-            icon_path = None
-            try:
-                self.toaster.show_toast(
-                    title=f"SteaMidra - {title}",
-                    msg=message,
-                    duration=duration,
-                    icon_path=icon_path,
-                    threaded=True
-                )
-                logger.info(f"Notification shown: {title}")
+            from PyQt6.QtWidgets import QApplication
+            app = QApplication.instance()
+            tray = getattr(app, "_tray", None) if app is not None else None
+            if tray is not None and hasattr(tray, "notify"):
+                tray.notify(f"Kraken - {title}", message, duration * 1000)
+                logger.info(f"Notification shown via Qt tray: {title}")
                 return True
-            except Exception as toast_error:
-                if "pkg_resources" in str(toast_error) or "DistributionNotFound" in str(toast_error):
-                    logger.warning(f"Disabling notifications due to pkg_resources error: {toast_error}")
-                    self.enabled = False
-                    return False
-                else:
-                    raise
-        except Exception as e:
-            logger.error(f"Failed to show notification: {e}")
-            # Disable notifications on any error to prevent repeated failures
-            self.enabled = False
+        except Exception as tray_err:
+            logger.debug(f"Tray notification attempt failed: {tray_err}")
+
+        if not (NOTIFICATIONS_AVAILABLE and self.toaster is not None):
+            return False
+
+        try:
+            self.toaster.show_toast(
+                title=f"Kraken - {title}",
+                msg=message,
+                duration=duration,
+                icon_path=None,
+                threaded=True
+            )
+            logger.info(f"Notification shown via win10toast: {title}")
+            return True
+        except Exception as toast_error:
+            if "pkg_resources" in str(toast_error) or "DistributionNotFound" in str(toast_error):
+                logger.warning(f"Disabling win10toast notifications due to pkg_resources error: {toast_error}")
+            else:
+                logger.error(f"Failed to show toast notification: {toast_error}")
             return False
 
     def show_success(self, title, message):
@@ -125,10 +154,14 @@ class NotificationService:
 
 # Global notification service instance
 _notification_service = None
-
-
-_notification_service = None
 _notif_lock = threading.Lock()
+_ui_emitter = None
+
+
+def set_ui_emitter(callback):
+    """Register a function(title, message, kind) used by the React toast host."""
+    global _ui_emitter
+    _ui_emitter = callback
 
 
 def get_notification_service():
